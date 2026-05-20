@@ -1,9 +1,15 @@
 from contextlib import asynccontextmanager
+from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 
+from api.admin import router as admin_router
+from api.verifications import router as verifications_router
 from core.config import settings
+from middleware.rate_limit import RateLimitMiddleware
 from models.database import engine
 
 
@@ -23,6 +29,7 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# CORS — frontend origin only, never *
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[settings.frontend_origin],
@@ -30,6 +37,32 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.add_middleware(RateLimitMiddleware)
+
+# Routers
+app.include_router(verifications_router)
+app.include_router(admin_router)
+
+# Local dev — serve uploaded documents at /uploads
+if settings.storage_backend == "local":
+    upload_path = Path(settings.upload_dir)
+    upload_path.mkdir(parents=True, exist_ok=True)
+    app.mount("/uploads", StaticFiles(directory=str(upload_path)), name="uploads")
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    return JSONResponse(
+        status_code=500,
+        content={
+            "type": "https://kyc.example/errors/internal",
+            "title": "Internal Server Error",
+            "status": 500,
+            "detail": "An unexpected error occurred.",
+            "instance": str(request.url),
+        },
+    )
 
 
 @app.get("/health", tags=["system"])
