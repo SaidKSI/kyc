@@ -66,6 +66,7 @@ async def create_verification(
             status="pending",
         )
     )
+    await session.flush()  # INSERT verification before audit_event FK reference
     session.add(
         AuditEvent(
             verification_id=ver_id,

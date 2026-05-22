@@ -10,9 +10,10 @@ async function request<T>(
   path: string,
   options?: RequestInit
 ): Promise<T> {
+  const { headers: extraHeaders, ...restOptions } = options ?? {};
   const res = await fetch(`${BASE_URL}${path}`, {
-    headers: { "Content-Type": "application/json", ...options?.headers },
-    ...options,
+    headers: { "Content-Type": "application/json", ...extraHeaders },
+    ...restOptions,
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));

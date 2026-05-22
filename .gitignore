@@ -17,6 +17,10 @@ node_modules/
 .deepface/
 ~/.easyocr/
 
+# Logs
+backend/logs/
+frontend/logs/
+
 # OS
 .DS_Store
 Thumbs.db
