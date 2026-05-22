@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from models.dashboard_sessions import DashboardSession
 from models.database import get_session
-from models.operators import Operator
+from models.users import User
 from schemas.auth import LoginRequest, LoginResponse
 from services.auth import create_jwt, hash_api_key, verify_jwt, verify_password
 
@@ -26,27 +26,26 @@ async def login(
     session: AsyncSession = Depends(get_session),
 ):
     result = await session.execute(
-        select(Operator).where(
-            Operator.email == data.email,
-            Operator.status == "active",
-            Operator.deleted_at.is_(None),
+        select(User).where(
+            User.email == data.email,
+            User.status == "active",
+            User.deleted_at.is_(None),
         )
     )
-    operator = result.scalar_one_or_none()
-    if not operator or not verify_password(data.password, operator.password_hash):
+    user = result.scalar_one_or_none()
+    if not user or not verify_password(data.password, user.password_hash):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email or password",
         )
 
-    token = create_jwt(subject=operator.id, expires_minutes=_SESSION_TTL_HOURS * 60)
+    token = create_jwt(subject=user.id, expires_minutes=_SESSION_TTL_HOURS * 60)
 
-    # Log session for audit trail
-    token_hash = hash_api_key(token)  # reuse HMAC hash — no need for a separate function
+    token_hash = hash_api_key(token)
     session.add(
         DashboardSession(
             id=str(uuid.uuid4()),
-            operator_id=operator.id,
+            user_id=user.id,
             token_hash=token_hash,
             ip_address=request.client.host if request.client else None,
             user_agent=request.headers.get("user-agent"),
@@ -57,8 +56,9 @@ async def login(
 
     return LoginResponse(
         access_token=token,
-        operator_id=operator.id,
-        name=operator.name,
+        user_id=user.id,
+        name=user.name,
+        role=user.role,
     )
 
 

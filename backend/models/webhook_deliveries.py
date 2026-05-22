@@ -20,9 +20,9 @@ class WebhookDelivery(Base):
         nullable=False,
         index=True,
     )
-    operator_id: Mapped[str] = mapped_column(
+    user_id: Mapped[str] = mapped_column(
         String(36),
-        ForeignKey("operators.id", ondelete="CASCADE"),
+        ForeignKey("users.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )

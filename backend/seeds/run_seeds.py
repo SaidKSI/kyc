@@ -12,7 +12,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 SEEDERS = [
-    "seeds.seed_operators",
+    "seeds.seed_users",
 ]
 
 

@@ -1,15 +1,15 @@
-from .operators import Operator
+from .users import User
 from .api_keys import ApiKey
-from .operator_settings import OperatorSettings
+from .user_settings import UserSettings
 from .verification import Verification
 from .audit import AuditEvent
 from .webhook_deliveries import WebhookDelivery
 from .dashboard_sessions import DashboardSession
 
 __all__ = [
-    "Operator",
+    "User",
     "ApiKey",
-    "OperatorSettings",
+    "UserSettings",
     "Verification",
     "AuditEvent",
     "WebhookDelivery",

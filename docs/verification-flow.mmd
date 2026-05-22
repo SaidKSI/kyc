@@ -1,3 +1,31 @@
+%%{init: {
+  "theme": "base",
+  "themeVariables": {
+    "background": "#0f1117",
+    "primaryColor": "#1e293b",
+    "primaryTextColor": "#f1f5f9",
+    "primaryBorderColor": "#334155",
+    "secondaryColor": "#1e293b",
+    "tertiaryColor": "#28304a",
+    "tertiaryTextColor": "#f1f5f9",
+    "noteBkgColor": "#1e3a5f",
+    "noteTextColor": "#f1f5f9",
+    "noteBorderColor": "#3b82f6",
+    "actorBkg": "#1e293b",
+    "actorTextColor": "#f1f5f9",
+    "actorBorderColor": "#334155",
+    "actorLineColor": "#475569",
+    "signalColor": "#334155",
+    "signalTextColor": "#1e293b",
+    "labelBoxBkgColor": "#28304a",
+    "labelBoxBorderColor": "#3b82f6",
+    "labelTextColor": "#ffffff",
+    "loopTextColor": "#f1f5f9",
+    "activationBorderColor": "#3b82f6",
+    "activationBkgColor": "#1e3a5f",
+    "sequenceNumberColor": "#0f1117"
+  }
+}}%%
 sequenceDiagram
     autonumber
 
@@ -55,17 +83,17 @@ sequenceDiagram
     Note over BR,API: Browser holds SSE connection open<br/>polling fallback every 2s
 
     %% ── 5. ML pipeline ───────────────────────────────────────────────
-    rect rgb(30, 30, 50)
-        Note over Q: ML Pipeline (Celery chain)
-        Q->>Q: doc_auth — edge integrity, metadata,<br/>color histogram, template match
-        Q-->>API: SSE event: doc_auth complete
-        Q->>Q: ocr — EasyOCR Arabic+FR+EN<br/>MRZ parse + checksum validation
-        Q-->>API: SSE event: ocr complete
-        Q->>Q: face_match — ArcFace embedding<br/>cosine distance < 0.40 = match
-        Q-->>API: SSE event: face_match complete
-        Q->>Q: liveness — MediaPipe Face Mesh<br/>depth variance, texture analysis
-        Q-->>API: SSE event: liveness complete
-        Q->>Q: scoring — weighted 0–100<br/>doc_auth 30 + mrz 20 + face 25 + liveness 15 + ocr 10
+    rect rgb(235, 240, 255)
+        Note over Q,API: 🔬 ML Pipeline (Celery chain)
+        Q->>Q: 1 · doc_auth — edge integrity, metadata, color histogram, template match
+        Q-->>API: SSE → doc_auth complete
+        Q->>Q: 2 · ocr — EasyOCR Arabic+FR+EN, MRZ parse + checksum validation
+        Q-->>API: SSE → ocr complete
+        Q->>Q: 3 · face_match — ArcFace embedding, cosine distance < 0.40 = match
+        Q-->>API: SSE → face_match complete
+        Q->>Q: 4 · liveness — MediaPipe Face Mesh, depth variance + texture analysis
+        Q-->>API: SSE → liveness complete
+        Q->>Q: 5 · scoring — weighted 0–100 (doc 30 + mrz 20 + face 25 + liveness 15 + ocr 10)
     end
 
     %% ── 6. Decision ─────────────────────────────────────────────────

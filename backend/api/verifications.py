@@ -6,11 +6,11 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.deps import get_operator
+from api.deps import get_user
 from core.config import settings
 from models.audit import AuditEvent
 from models.database import get_session
-from models.operators import Operator
+from models.users import User
 from models.verification import Verification
 from schemas.verification import (
     CreateVerificationRequest,
@@ -28,13 +28,13 @@ _EXPIRY_MINUTES = 30
 
 async def _get_verification(
     verification_id: str,
-    operator: Operator,
+    user: User,
     session: AsyncSession,
 ) -> Verification:
     result = await session.execute(
         select(Verification).where(
             Verification.id == verification_id,
-            Verification.operator_id == operator.id,
+            Verification.user_id == user.id,
         )
     )
     ver = result.scalar_one_or_none()
@@ -47,7 +47,7 @@ async def _get_verification(
 async def create_verification(
     data: CreateVerificationRequest,
     request: Request,
-    operator: Operator = Depends(get_operator),
+    user: User = Depends(get_user),
     session: AsyncSession = Depends(get_session),
 ):
     ver_id = f"ver_{uuid.uuid4().hex[:16]}"
@@ -57,7 +57,7 @@ async def create_verification(
     session.add(
         Verification(
             id=ver_id,
-            operator_id=operator.id,
+            user_id=user.id,
             reference_id=data.reference_id,
             document_type=data.document_type,
             status="pending",
@@ -75,7 +75,7 @@ async def create_verification(
         AuditEvent(
             verification_id=ver_id,
             event_type="submitted",
-            actor=f"operator:{operator.id}",
+            actor=f"user:{user.id}",
             payload={
                 "reference_id": data.reference_id,
                 "document_type": data.document_type,
@@ -107,10 +107,10 @@ async def list_verifications(
     status_filter: str | None = None,
     limit: int = 50,
     offset: int = 0,
-    operator: Operator = Depends(get_operator),
+    user: User = Depends(get_user),
     session: AsyncSession = Depends(get_session),
 ):
-    q = select(Verification).where(Verification.operator_id == operator.id)
+    q = select(Verification).where(Verification.user_id == user.id)
     if status_filter:
         q = q.where(Verification.status == status_filter)
     q = q.order_by(Verification.created_at.desc()).limit(min(limit, 200)).offset(offset)
@@ -134,10 +134,10 @@ async def list_verifications(
 @router.get("/verify/{verification_id}", response_model=VerificationDetailResponse)
 async def get_verification_detail(
     verification_id: str,
-    operator: Operator = Depends(get_operator),
+    user: User = Depends(get_user),
     session: AsyncSession = Depends(get_session),
 ):
-    ver = await _get_verification(verification_id, operator, session)
+    ver = await _get_verification(verification_id, user, session)
     return VerificationDetailResponse(
         verification_id=ver.id,
         reference_id=ver.reference_id,
@@ -159,10 +159,10 @@ async def get_verification_detail(
 @router.get("/verify/{verification_id}/status", response_model=VerificationStatusResponse)
 async def get_verification_status(
     verification_id: str,
-    operator: Operator = Depends(get_operator),
+    user: User = Depends(get_user),
     session: AsyncSession = Depends(get_session),
 ):
-    ver = await _get_verification(verification_id, operator, session)
+    ver = await _get_verification(verification_id, user, session)
     return VerificationStatusResponse(
         verification_id=ver.id,
         status=ver.status,

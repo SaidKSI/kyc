@@ -13,9 +13,9 @@ class ApiKey(Base):
     id: Mapped[str] = mapped_column(
         String(36), primary_key=True, default=lambda: str(uuid.uuid4())
     )
-    operator_id: Mapped[str] = mapped_column(
+    user_id: Mapped[str] = mapped_column(
         String(36),
-        ForeignKey("operators.id", ondelete="CASCADE"),
+        ForeignKey("users.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )

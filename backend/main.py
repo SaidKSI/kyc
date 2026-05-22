@@ -8,6 +8,7 @@ from fastapi.staticfiles import StaticFiles
 
 from api.admin import router as admin_router
 from api.auth import router as auth_router
+from api.user import router as user_router
 from api.session import router as session_router
 from api.verifications import router as verifications_router
 from core.config import settings
@@ -46,6 +47,7 @@ app.add_middleware(RateLimitMiddleware)
 app.include_router(verifications_router)
 app.include_router(session_router)
 app.include_router(auth_router)
+app.include_router(user_router)
 app.include_router(admin_router)
 
 # Local dev — serve uploaded documents at /uploads

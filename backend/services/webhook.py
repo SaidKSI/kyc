@@ -16,7 +16,7 @@ from sqlalchemy import select
 
 from core.config import settings
 from models.database import AsyncSessionLocal
-from models.operators import Operator
+from models.users import User
 from models.verification import Verification
 from models.webhook_deliveries import WebhookDelivery
 from workers.celery_app import celery_app
@@ -39,7 +39,7 @@ async def _dispatch(task, verification_id: str) -> None:
             return
 
         result = await session.execute(
-            select(Operator).where(Operator.id == ver.operator_id)
+            select(User).where(User.id == ver.user_id)
         )
         op = result.scalar_one_or_none()
         if not op or not op.webhook_url:
@@ -66,7 +66,7 @@ async def _dispatch(task, verification_id: str) -> None:
         delivery = WebhookDelivery(
             id=str(uuid.uuid4()),
             verification_id=ver.id,
-            operator_id=op.id,
+            user_id=op.id,
             url=op.webhook_url,
             payload=payload,
             attempt=attempt_number,
