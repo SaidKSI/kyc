@@ -3,6 +3,7 @@ import hmac
 import secrets
 from datetime import datetime, timedelta, timezone
 
+import bcrypt as _bcrypt
 from jose import JWTError, jwt
 
 from core.config import settings
@@ -18,6 +19,14 @@ def hash_api_key(raw_key: str) -> str:
 
 def verify_api_key(raw_key: str, stored_hash: str) -> bool:
     return hmac.compare_digest(hash_api_key(raw_key), stored_hash)
+
+
+def hash_password(plain: str) -> str:
+    return _bcrypt.hashpw(plain.encode(), _bcrypt.gensalt()).decode()
+
+
+def verify_password(plain: str, hashed: str) -> bool:
+    return _bcrypt.checkpw(plain.encode(), hashed.encode())
 
 
 def generate_api_key() -> str:

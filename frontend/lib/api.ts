@@ -1,6 +1,8 @@
 import type {
   CreateVerificationRequest,
   CreateVerificationResponse,
+  SessionInfoResponse,
+  SubmitResponse,
   VerificationStatusResponse,
 } from "./verification";
 
@@ -74,6 +76,56 @@ export async function getVerificationStatus(
     headers: { "X-API-Key": apiKey },
   });
 }
+
+// ── Session token routes (end-user browser, no API key) ──────────────────────
+
+export async function getSessionInfo(token: string): Promise<SessionInfoResponse> {
+  return request(`/v1/session/${token}`);
+}
+
+export async function uploadDocumentByToken(
+  token: string,
+  slot: "doc_front" | "doc_back" | "selfie",
+  file: File
+): Promise<void> {
+  const form = new FormData();
+  form.append("slot", slot);
+  form.append("file", file);
+  const res = await fetch(`${BASE_URL}/v1/session/${token}/upload`, {
+    method: "POST",
+    body: form,
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.detail ?? `Upload failed HTTP ${res.status}`);
+  }
+}
+
+export async function submitByToken(token: string): Promise<SubmitResponse> {
+  return request(`/v1/session/${token}/submit`, { method: "POST" });
+}
+
+export async function getStatusByToken(
+  token: string
+): Promise<VerificationStatusResponse> {
+  return request(`/v1/session/${token}/status`);
+}
+
+export function streamByToken(
+  token: string,
+  onEvent: (data: unknown) => void,
+  onError?: (err: Event) => void
+): EventSource {
+  const url = `${BASE_URL}/v1/session/${token}/stream`;
+  const es = new EventSource(url);
+  es.onmessage = (e) => {
+    try { onEvent(JSON.parse(e.data)); } catch { onEvent(e.data); }
+  };
+  if (onError) es.onerror = onError;
+  return es;
+}
+
+// ── Operator API-key routes (kept for dev testing page) ───────────────────────
 
 export function streamVerificationProgress(
   verificationId: string,

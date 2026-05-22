@@ -1,0 +1,87 @@
+sequenceDiagram
+    autonumber
+
+    box Operator Side
+        participant OB as Operator Backend
+        participant OW as Operator Webhook Handler
+    end
+
+    box KYC Platform
+        participant API as KYC API (FastAPI)
+        participant DB as PostgreSQL
+        participant Q as Celery Worker
+    end
+
+    box End-User Side
+        participant BR as User Browser / Mobile
+    end
+
+    %% ── 1. Session creation ──────────────────────────────────────────
+    OB->>API: POST /v1/verify<br/>X-API-Key: kyc_...<br/>{ reference_id, document_type, locale }
+    API->>DB: INSERT verification (status=pending)<br/>generate session_token ses_...
+    DB-->>API: ok
+    API-->>OB: 201 { session_token, verify_url, expires_at }
+
+    %% ── 2. Redirect user ─────────────────────────────────────────────
+    OB->>BR: send verify_url to user<br/>(email / redirect / iframe)
+
+    %% ── 3. Capture flow ──────────────────────────────────────────────
+    BR->>API: GET /v1/session/{token}
+    API-->>BR: { document_type, locale, status }
+
+    BR->>BR: Capture doc front (camera / upload)<br/>Client-side quality check (blur, resolution)
+
+    BR->>API: POST /v1/session/{token}/upload<br/>slot=doc_front, file=...
+    API->>DB: save file key → doc_front_key
+
+    alt Document requires back (CIN, Permit, License)
+        BR->>BR: Capture doc back
+        BR->>API: POST /v1/session/{token}/upload<br/>slot=doc_back, file=...
+        API->>DB: save file key → doc_back_key
+    end
+
+    BR->>BR: Capture selfie<br/>"blink once" liveness cue
+
+    BR->>API: POST /v1/session/{token}/upload<br/>slot=selfie, file=...
+    API->>DB: save file key → selfie_key
+
+    BR->>API: POST /v1/session/{token}/submit
+    API->>DB: status = processing
+    API->>Q: enqueue run_pipeline(verification_id)
+    API-->>BR: 202 { status: processing, estimated_seconds: 8 }
+
+    %% ── 4. Real-time progress ────────────────────────────────────────
+    BR-->>API: GET /v1/session/{token}/stream (SSE)
+    Note over BR,API: Browser holds SSE connection open<br/>polling fallback every 2s
+
+    %% ── 5. ML pipeline ───────────────────────────────────────────────
+    rect rgb(30, 30, 50)
+        Note over Q: ML Pipeline (Celery chain)
+        Q->>Q: doc_auth — edge integrity, metadata,<br/>color histogram, template match
+        Q-->>API: SSE event: doc_auth complete
+        Q->>Q: ocr — EasyOCR Arabic+FR+EN<br/>MRZ parse + checksum validation
+        Q-->>API: SSE event: ocr complete
+        Q->>Q: face_match — ArcFace embedding<br/>cosine distance < 0.40 = match
+        Q-->>API: SSE event: face_match complete
+        Q->>Q: liveness — MediaPipe Face Mesh<br/>depth variance, texture analysis
+        Q-->>API: SSE event: liveness complete
+        Q->>Q: scoring — weighted 0–100<br/>doc_auth 30 + mrz 20 + face 25 + liveness 15 + ocr 10
+    end
+
+    %% ── 6. Decision ─────────────────────────────────────────────────
+    alt score ≥ 75
+        Q->>DB: status = approved
+    else score ≤ 35
+        Q->>DB: status = rejected
+    else 35 < score < 75
+        Q->>DB: status = review (manual queue)
+    end
+
+    Q-->>API: SSE event: done { status, score, decision }
+    API-->>BR: SSE: { step: done, status, score }
+    BR->>BR: Show result screen<br/>approved / review / rejected
+
+    %% ── 7. Webhook ───────────────────────────────────────────────────
+    Q->>OW: POST operator.webhook_url<br/>X-KYC-Signature: sha256=HMAC<br/>{ event, verification_id, reference_id,<br/>  status, score, extracted_fields }
+    Note over Q,OW: Retry: exponential backoff<br/>5 attempts, max 1 hour delay
+    OW-->>Q: 200 OK

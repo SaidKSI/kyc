@@ -8,7 +8,9 @@ from api.deps import get_current_user
 from models.audit import AuditEvent
 from models.database import get_session
 from models.verification import Verification
-from schemas.verification import AdminDecisionUpdate
+from models.webhook_deliveries import WebhookDelivery
+from schemas.verification import AdminDecisionUpdate, VerificationDetailResponse, WebhookDeliveryResponse
+from services.storage import storage
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -44,6 +46,66 @@ async def get_review_queue(
         "limit": limit,
         "offset": offset,
     }
+
+
+@router.get("/verify/{verification_id}", response_model=VerificationDetailResponse)
+async def get_verification_detail(
+    verification_id: str,
+    session: AsyncSession = Depends(get_session),
+    user: dict = Depends(get_current_user),
+):
+    result = await session.execute(
+        select(Verification).where(Verification.id == verification_id)
+    )
+    ver = result.scalar_one_or_none()
+    if not ver:
+        raise HTTPException(status_code=404, detail="Verification not found")
+
+    return VerificationDetailResponse(
+        verification_id=ver.id,
+        reference_id=ver.reference_id,
+        document_type=ver.document_type,
+        status=ver.status,
+        score=ver.score,
+        decision=ver.decision,
+        extracted_fields=ver.extracted_fields,
+        checks=ver.checks,
+        locale=ver.locale,
+        created_at=ver.created_at,
+        completed_at=ver.completed_at,
+        doc_front_url=storage.get_url(ver.doc_front_key) if ver.doc_front_key else None,
+        doc_back_url=storage.get_url(ver.doc_back_key) if ver.doc_back_key else None,
+        selfie_url=storage.get_url(ver.selfie_key) if ver.selfie_key else None,
+    )
+
+
+@router.get("/webhooks", response_model=list[WebhookDeliveryResponse])
+async def list_webhook_deliveries(
+    verification_id: str | None = None,
+    limit: int = 50,
+    offset: int = 0,
+    session: AsyncSession = Depends(get_session),
+    user: dict = Depends(get_current_user),
+):
+    q = select(WebhookDelivery)
+    if verification_id:
+        q = q.where(WebhookDelivery.verification_id == verification_id)
+    q = q.order_by(WebhookDelivery.created_at.desc()).limit(min(limit, 200)).offset(offset)
+    result = await session.execute(q)
+    deliveries = result.scalars().all()
+    return [
+        WebhookDeliveryResponse(
+            id=d.id,
+            verification_id=d.verification_id,
+            url=d.url,
+            status_code=d.status_code,
+            attempt=d.attempt,
+            delivered_at=d.delivered_at,
+            next_retry_at=d.next_retry_at,
+            created_at=d.created_at,
+        )
+        for d in deliveries
+    ]
 
 
 @router.patch("/verify/{verification_id}/decision")

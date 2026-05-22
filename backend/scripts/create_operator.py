@@ -1,4 +1,4 @@
-"""CLI: create an operator + API key. Run once per operator."""
+"""CLI: create an operator account + initial API key. Run once per operator."""
 import argparse
 import asyncio
 import os
@@ -7,12 +7,13 @@ import uuid
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from models.api_keys import ApiKey
 from models.database import AsyncSessionLocal, Base, engine
 from models.operators import Operator
-from services.auth import generate_api_key, hash_api_key
+from services.auth import generate_api_key, hash_api_key, hash_password
 
 
-async def main(name: str, webhook_url: str | None, webhook_secret: str | None) -> None:
+async def main(name: str, email: str, password: str, webhook_url: str | None, webhook_secret: str | None) -> None:
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
@@ -20,18 +21,31 @@ async def main(name: str, webhook_url: str | None, webhook_secret: str | None) -
     op = Operator(
         id=str(uuid.uuid4()),
         name=name,
-        api_key_hash=hash_api_key(raw_key),
+        email=email,
+        password_hash=hash_password(password),
+        plan="free",
+        status="active",
         webhook_url=webhook_url,
         webhook_secret=webhook_secret,
     )
+    api_key = ApiKey(
+        id=str(uuid.uuid4()),
+        operator_id=op.id,
+        name="Default",
+        key_hash=hash_api_key(raw_key),
+        environment="production",
+    )
+
     async with AsyncSessionLocal() as session:
         session.add(op)
+        await session.flush()
+        session.add(api_key)
         await session.commit()
-        await session.refresh(op)
 
     print(f"\nOperator created")
     print(f"  ID:      {op.id}")
     print(f"  Name:    {op.name}")
+    print(f"  Email:   {op.email}")
     print(f"  API Key: {raw_key}")
     print(f"\n  Save this API key — shown only once.\n")
 
@@ -39,7 +53,9 @@ async def main(name: str, webhook_url: str | None, webhook_secret: str | None) -
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Create a KYC operator")
     parser.add_argument("--name", required=True, help="Operator display name")
+    parser.add_argument("--email", required=True, help="Login email")
+    parser.add_argument("--password", required=True, help="Login password")
     parser.add_argument("--webhook-url", default=None)
     parser.add_argument("--webhook-secret", default=None)
     args = parser.parse_args()
-    asyncio.run(main(args.name, args.webhook_url, args.webhook_secret))
+    asyncio.run(main(args.name, args.email, args.password, args.webhook_url, args.webhook_secret))

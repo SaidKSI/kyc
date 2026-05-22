@@ -13,9 +13,13 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from core.config import settings
 from models.database import Base
-import models.operators   # noqa: F401
-import models.verification  # noqa: F401
-import models.audit  # noqa: F401
+import models.operators          # noqa: F401
+import models.api_keys           # noqa: F401
+import models.operator_settings  # noqa: F401
+import models.verification       # noqa: F401
+import models.audit              # noqa: F401
+import models.webhook_deliveries # noqa: F401
+import models.dashboard_sessions # noqa: F401
 
 config = context.config
 config.set_main_option("sqlalchemy.url", settings.database_url)

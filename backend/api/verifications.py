@@ -1,34 +1,29 @@
-import asyncio
-import json
+import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
-from typing import AsyncGenerator
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
-from fastapi.responses import StreamingResponse
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.deps import get_operator
 from core.config import settings
 from models.audit import AuditEvent
-from models.database import AsyncSessionLocal, get_session
+from models.database import get_session
 from models.operators import Operator
 from models.verification import Verification
 from schemas.verification import (
     CreateVerificationRequest,
     CreateVerificationResponse,
-    SubmitResponse,
+    VerificationDetailResponse,
+    VerificationListItem,
     VerificationStatusResponse,
 )
-from services.auth import hash_api_key
 from services.storage import storage
 
 router = APIRouter(prefix="/v1", tags=["verifications"])
 
 _EXPIRY_MINUTES = 30
-_ALLOWED_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp"}
-_MAX_FILE_BYTES = 10 * 1024 * 1024  # 10 MB
 
 
 async def _get_verification(
@@ -51,11 +46,13 @@ async def _get_verification(
 @router.post("/verify", status_code=201, response_model=CreateVerificationResponse)
 async def create_verification(
     data: CreateVerificationRequest,
+    request: Request,
     operator: Operator = Depends(get_operator),
     session: AsyncSession = Depends(get_session),
 ):
     ver_id = f"ver_{uuid.uuid4().hex[:16]}"
-    expires_at = datetime.now(timezone.utc) + timedelta(minutes=_EXPIRY_MINUTES)
+    session_token = f"ses_{secrets.token_urlsafe(32)}"
+    session_expires_at = datetime.now(timezone.utc) + timedelta(minutes=_EXPIRY_MINUTES)
 
     session.add(
         Verification(
@@ -64,9 +61,16 @@ async def create_verification(
             reference_id=data.reference_id,
             document_type=data.document_type,
             status="pending",
+            session_token=session_token,
+            session_expires_at=session_expires_at,
+            locale=data.locale,
+            redirect_url=data.redirect_url,
+            ip_address=request.client.host if request.client else None,
+            user_agent=request.headers.get("user-agent"),
+            metadata_=data.metadata,
         )
     )
-    await session.flush()  # INSERT verification before audit_event FK reference
+    await session.flush()
     session.add(
         AuditEvent(
             verification_id=ver_id,
@@ -90,98 +94,65 @@ async def create_verification(
 
     return CreateVerificationResponse(
         verification_id=ver_id,
-        upload_endpoint=f"/v1/verify/{ver_id}/upload",
+        session_token=session_token,
+        verify_url=f"{settings.frontend_origin}/verify/{session_token}",
+        upload_endpoint=f"/v1/session/{session_token}/upload",
         upload_urls=upload_urls,
-        expires_at=expires_at,
+        expires_at=session_expires_at,
     )
 
 
-@router.post("/verify/{verification_id}/upload")
-async def upload_file(
-    verification_id: str,
-    slot: str = Form(...),
-    file: UploadFile = File(...),
+@router.get("/verify", response_model=list[VerificationListItem])
+async def list_verifications(
+    status_filter: str | None = None,
+    limit: int = 50,
+    offset: int = 0,
     operator: Operator = Depends(get_operator),
     session: AsyncSession = Depends(get_session),
 ):
-    ver = await _get_verification(verification_id, operator, session)
-
-    if ver.status != "pending":
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=f"Cannot upload to verification with status '{ver.status}'",
+    q = select(Verification).where(Verification.operator_id == operator.id)
+    if status_filter:
+        q = q.where(Verification.status == status_filter)
+    q = q.order_by(Verification.created_at.desc()).limit(min(limit, 200)).offset(offset)
+    result = await session.execute(q)
+    items = result.scalars().all()
+    return [
+        VerificationListItem(
+            verification_id=v.id,
+            reference_id=v.reference_id,
+            document_type=v.document_type,
+            status=v.status,
+            score=v.score,
+            decision=v.decision,
+            created_at=v.created_at,
+            completed_at=v.completed_at,
         )
-    if slot not in ("doc_front", "doc_back", "selfie"):
-        raise HTTPException(status_code=422, detail=f"Invalid slot '{slot}'")
-
-    content_type = file.content_type or "image/jpeg"
-    if content_type not in _ALLOWED_CONTENT_TYPES:
-        raise HTTPException(status_code=422, detail=f"Unsupported content type '{content_type}'")
-
-    file_bytes = await file.read()
-    if len(file_bytes) > _MAX_FILE_BYTES:
-        raise HTTPException(status_code=422, detail="File exceeds 10 MB limit")
-
-    key = await storage.save(verification_id, slot, file_bytes, content_type)
-
-    if slot == "doc_front":
-        ver.doc_front_key = key
-    elif slot == "doc_back":
-        ver.doc_back_key = key
-    else:
-        ver.selfie_key = key
-
-    await session.commit()
-    return {"slot": slot, "key": key}
+        for v in items
+    ]
 
 
-@router.post(
-    "/verify/{verification_id}/submit",
-    status_code=202,
-    response_model=SubmitResponse,
-)
-async def submit_verification(
+@router.get("/verify/{verification_id}", response_model=VerificationDetailResponse)
+async def get_verification_detail(
     verification_id: str,
     operator: Operator = Depends(get_operator),
     session: AsyncSession = Depends(get_session),
 ):
     ver = await _get_verification(verification_id, operator, session)
-
-    # Idempotent — return current state if already submitted
-    if ver.status in ("processing", "approved", "rejected", "review", "error"):
-        return SubmitResponse(
-            verification_id=ver.id,
-            status=ver.status,
-            estimated_seconds=0,
-        )
-
-    if not ver.doc_front_key:
-        raise HTTPException(status_code=422, detail="doc_front image required before submit")
-    if not ver.selfie_key:
-        raise HTTPException(status_code=422, detail="selfie image required before submit")
-
-    ver.status = "processing"
-    session.add(
-        AuditEvent(
-            verification_id=ver.id,
-            event_type="check_complete",
-            actor="system",
-            payload={"action": "pipeline_queued"},
-        )
-    )
-    await session.commit()
-
-    # Phase 5 will implement the worker; import guard keeps server bootable now
-    try:
-        from workers.pipeline import run_pipeline
-        run_pipeline.delay(verification_id)
-    except ImportError:
-        pass
-
-    return SubmitResponse(
+    return VerificationDetailResponse(
         verification_id=ver.id,
-        status="processing",
-        estimated_seconds=8,
+        reference_id=ver.reference_id,
+        document_type=ver.document_type,
+        status=ver.status,
+        score=ver.score,
+        decision=ver.decision,
+        extracted_fields=ver.extracted_fields,
+        checks=ver.checks,
+        locale=ver.locale,
+        created_at=ver.created_at,
+        completed_at=ver.completed_at,
+        doc_front_url=storage.get_url(ver.doc_front_key) if ver.doc_front_key else None,
+        doc_back_url=storage.get_url(ver.doc_back_key) if ver.doc_back_key else None,
+        selfie_url=storage.get_url(ver.selfie_key) if ver.selfie_key else None,
     )
 
 
@@ -200,50 +171,4 @@ async def get_verification_status(
         extracted_fields=ver.extracted_fields,
         checks=ver.checks,
         completed_at=ver.completed_at,
-    )
-
-
-@router.get("/verify/{verification_id}/stream")
-async def stream_verification_progress(
-    verification_id: str,
-    api_key: str,  # query param — EventSource cannot set custom headers
-    session: AsyncSession = Depends(get_session),
-):
-    # Validate key via query param
-    key_hash = hash_api_key(api_key)
-    result = await session.execute(
-        select(Operator).where(Operator.api_key_hash == key_hash)
-    )
-    operator = result.scalar_one_or_none()
-    if not operator:
-        raise HTTPException(status_code=401, detail="Invalid API key")
-
-    async def event_stream() -> AsyncGenerator[str, None]:
-        seen: set[str] = set()
-        async with AsyncSessionLocal() as s:
-            for _ in range(120):  # 2-minute timeout
-                await asyncio.sleep(1)
-                res = await s.execute(
-                    select(Verification).where(
-                        Verification.id == verification_id,
-                        Verification.operator_id == operator.id,
-                    )
-                )
-                ver = res.scalar_one_or_none()
-                if not ver:
-                    break
-
-                for step, check_result in (ver.checks or {}).items():
-                    if step not in seen:
-                        seen.add(step)
-                        yield f"data: {json.dumps({'step': step, 'status': 'complete'})}\n\n"
-
-                if ver.status in ("approved", "rejected", "review", "error"):
-                    yield f"data: {json.dumps({'step': 'done', 'status': ver.status, 'score': ver.score, 'decision': ver.decision})}\n\n"
-                    break
-
-    return StreamingResponse(
-        event_stream(),
-        media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )

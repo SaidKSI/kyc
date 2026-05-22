@@ -18,10 +18,14 @@ export interface CreateVerificationRequest {
   reference_id: string;
   document_type: DocumentType;
   locale?: string;
+  redirect_url?: string;
+  metadata?: Record<string, unknown>;
 }
 
 export interface CreateVerificationResponse {
   verification_id: string;
+  session_token: string;
+  verify_url: string;
   upload_endpoint: string;
   upload_urls: Record<string, string> | null;
   expires_at: string;
@@ -56,3 +60,18 @@ export const DOCUMENT_REQUIRES_BACK: Record<DocumentType, boolean> = {
   residence_permit: true,
   drivers_license: true,
 };
+
+export interface SessionInfoResponse {
+  verification_id: string;
+  document_type: DocumentType;
+  locale: string;
+  status: VerificationStatus;
+  redirect_url: string | null;
+  expires_at: string | null;
+}
+
+export interface SubmitResponse {
+  verification_id: string;
+  status: string;
+  estimated_seconds: number;
+}
