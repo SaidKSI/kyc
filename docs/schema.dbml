@@ -2,62 +2,64 @@
 // Visualize at https://dbdiagram.io
 
 // ─────────────────────────────────────────────
-// OPERATORS (business accounts)
+// USERS (business accounts + admins)
 // ─────────────────────────────────────────────
 
-Table operators {
+Table users {
   id              varchar(36)  [pk]
-  name            text         [not null]
-  email           text         [unique, not null]
+  name            varchar(255) [not null]
+  email           varchar(255) [unique, not null]
   password_hash   text         [not null]
-  plan            text         [not null, default: 'free', note: 'free | pro | enterprise']
-  status          text         [not null, default: 'active', note: 'active | suspended']
-  webhook_url     text
-  webhook_secret  text
+  role            varchar(20)  [not null, default: 'user', note: 'user | admin']
+  plan            varchar(20)  [not null, default: 'free', note: 'free | pro | enterprise']
+  status          varchar(20)  [not null, default: 'active', note: 'active | suspended']
+  webhook_url     varchar(2048)
+  webhook_secret  varchar(255)
   created_at      timestamptz  [not null, default: `now()`]
   deleted_at      timestamptz  [note: 'soft delete']
 
   indexes {
     email
+    role
     status
   }
 }
 
 // ─────────────────────────────────────────────
-// API KEYS (multiple per operator)
+// USER SETTINGS (per-user overrides)
 // ─────────────────────────────────────────────
 
-Table api_keys {
-  id              varchar(36)  [pk]
-  operator_id     varchar(36)  [not null, ref: > operators.id]
-  name            text         [not null, note: 'e.g. Production, Staging']
-  key_hash        text         [unique, not null]
-  environment     text         [not null, default: 'production', note: 'sandbox | production']
-  last_used_at    timestamptz
-  expires_at      timestamptz  [note: 'NULL = never expires']
-  created_at      timestamptz  [not null, default: `now()`]
-  revoked_at      timestamptz  [note: 'NULL = active']
-
-  indexes {
-    key_hash
-    operator_id
-    revoked_at
-  }
+Table user_settings {
+  user_id                 varchar(36)  [pk, ref: - users.id]
+  allowed_doc_types       text[]       [note: 'NULL = all types allowed']
+  require_liveness        boolean      [not null, default: true]
+  retention_days          int          [not null, default: 90]
+  allowed_origins         text[]       [note: 'CORS whitelist, NULL = use global']
+  score_approve_threshold int          [note: 'NULL = use global (75)']
+  score_reject_threshold  int          [note: 'NULL = use global (35)']
+  updated_at              timestamptz  [not null, default: `now()`]
 }
 
 // ─────────────────────────────────────────────
-// OPERATOR SETTINGS (per-operator overrides)
+// API KEYS (multiple per user)
 // ─────────────────────────────────────────────
 
-Table operator_settings {
-  operator_id           varchar(36)  [pk, ref: - operators.id]
-  allowed_doc_types     text[]       [note: 'NULL = all types allowed']
-  require_liveness      boolean      [not null, default: true]
-  retention_days        int          [not null, default: 90]
-  allowed_origins       text[]       [note: 'CORS whitelist, NULL = use global']
-  score_approve_threshold int        [note: 'NULL = use global (75)']
-  score_reject_threshold  int        [note: 'NULL = use global (35)']
-  updated_at            timestamptz  [not null, default: `now()`]
+Table api_keys {
+  id           varchar(36)  [pk]
+  user_id      varchar(36)  [not null, ref: > users.id]
+  name         varchar(255) [not null, note: 'e.g. Production, Staging']
+  key_hash     text         [unique, not null]
+  environment  varchar(20)  [not null, default: 'production', note: 'sandbox | production']
+  last_used_at timestamptz
+  expires_at   timestamptz  [note: 'NULL = never expires']
+  created_at   timestamptz  [not null, default: `now()`]
+  revoked_at   timestamptz  [note: 'NULL = active']
+
+  indexes {
+    key_hash
+    user_id
+    revoked_at
+  }
 }
 
 // ─────────────────────────────────────────────
@@ -65,19 +67,19 @@ Table operator_settings {
 // ─────────────────────────────────────────────
 
 Table verifications {
-  id                  varchar(36)  [pk, note: 'ver_<hex16>']
-  operator_id         varchar(36)  [not null, ref: > operators.id]
-  reference_id        text         [not null, note: 'operator internal user ID']
-  document_type       text         [not null, note: 'national_id | passport | residence_permit | drivers_license']
-  status              text         [not null, default: 'pending', note: 'pending | processing | approved | rejected | review | error']
+  id                  varchar(36)  [pk]
+  user_id             varchar(36)  [not null, ref: > users.id]
+  reference_id        varchar(255) [not null, note: 'caller internal user ID']
+  document_type       varchar(50)  [not null, note: 'national_id | passport | residence_permit | drivers_license']
+  status              varchar(20)  [not null, default: 'pending', note: 'pending | processing | approved | rejected | review | error']
 
   // Session token — used by the end-user browser (never the API key)
-  session_token       text         [unique, note: 'ses_<random>, short-lived frontend token']
+  session_token       varchar(64)  [unique, note: 'ses_<random>, short-lived frontend token']
   session_expires_at  timestamptz
 
   // Result
   score               int
-  decision            text         [note: 'approved | rejected | review']
+  decision            varchar(20)  [note: 'approved | rejected | review']
   checks              jsonb        [note: 'raw output from each ML step']
   extracted_fields    jsonb        [note: 'structured OCR output, PII encrypted at rest']
 
@@ -87,20 +89,20 @@ Table verifications {
   selfie_key          text
 
   // Context
-  locale              text         [default: 'en']
-  redirect_url        text         [note: 'where to send user after completion']
-  ip_address          text
+  locale              varchar(10)  [not null, default: 'en']
+  redirect_url        text
+  ip_address          varchar(45)
   user_agent          text
   attempt_number      int          [not null, default: 1]
-  metadata            jsonb        [note: 'arbitrary operator key-values']
+  metadata            jsonb        [note: 'arbitrary caller key-values']
 
   // Timestamps
   created_at          timestamptz  [not null, default: `now()`]
   completed_at        timestamptz
-  purge_at            timestamptz  [note: 'computed from operator retention_days']
+  purge_at            timestamptz  [note: 'computed from user retention_days']
 
   indexes {
-    operator_id
+    user_id
     status
     session_token
     reference_id
@@ -115,9 +117,9 @@ Table verifications {
 
 Table audit_events {
   id               varchar(36)  [pk]
-  verification_id  varchar(36)  [ref: > verifications.id]
-  event_type       text         [not null, note: 'submitted | check_complete | decision | webhook_sent | manual_override']
-  actor            text         [not null, note: 'system | operator:<id> | agent:<id>']
+  verification_id  varchar(36)  [ref: > verifications.id, note: 'SET NULL on delete']
+  event_type       varchar(50)  [not null, note: 'submitted | check_complete | decision | webhook_sent | manual_override']
+  actor            varchar(100) [not null, default: 'system', note: 'system | user:<id> | agent:<id>']
   payload          jsonb
   created_at       timestamptz  [not null, default: `now()`]
 
@@ -135,7 +137,7 @@ Table audit_events {
 Table webhook_deliveries {
   id               varchar(36)  [pk]
   verification_id  varchar(36)  [not null, ref: > verifications.id]
-  operator_id      varchar(36)  [not null, ref: > operators.id]
+  user_id          varchar(36)  [not null, ref: > users.id]
   url              text         [not null]
   payload          jsonb        [not null]
   status_code      int          [note: 'NULL = not yet attempted']
@@ -146,29 +148,29 @@ Table webhook_deliveries {
 
   indexes {
     verification_id
-    operator_id
+    user_id
     next_retry_at
     delivered_at
   }
 }
 
 // ─────────────────────────────────────────────
-// DASHBOARD SESSIONS (JWT refresh store)
+// DASHBOARD SESSIONS (JWT store)
 // ─────────────────────────────────────────────
 
 Table dashboard_sessions {
-  id           varchar(36)  [pk]
-  operator_id  varchar(36)  [not null, ref: > operators.id]
-  token_hash   text         [unique, not null]
-  ip_address   text
-  user_agent   text
-  expires_at   timestamptz  [not null]
-  created_at   timestamptz  [not null, default: `now()`]
-  revoked_at   timestamptz
+  id          varchar(36)  [pk]
+  user_id     varchar(36)  [not null, ref: > users.id]
+  token_hash  text         [unique, not null]
+  ip_address  varchar(45)
+  user_agent  text
+  expires_at  timestamptz  [not null]
+  created_at  timestamptz  [not null, default: `now()`]
+  revoked_at  timestamptz
 
   indexes {
     token_hash
-    operator_id
+    user_id
     expires_at
   }
 }

@@ -17,7 +17,13 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -119,12 +125,17 @@ export default function SettingsPage() {
 
   // ── API key creation ──────────────────────────────────────────────────────────
   const [newKeyName, setNewKeyName] = useState("");
-  const [newKeyEnv, setNewKeyEnv] = useState<"sandbox" | "production">("sandbox");
+  const [newKeyEnv, setNewKeyEnv] = useState<"sandbox" | "production">(
+    "sandbox",
+  );
   const [createdKey, setCreatedKey] = useState<ApiKeyCreated | null>(null);
 
   const createKeyMutation = useMutation({
     mutationFn: () =>
-      createKey(user!.access_token, { name: newKeyName, environment: newKeyEnv }),
+      createKey(user!.access_token, {
+        name: newKeyName,
+        environment: newKeyEnv,
+      }),
     onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ["keys"] });
       setCreatedKey(data);
@@ -149,8 +160,12 @@ export default function SettingsPage() {
 
   useEffect(() => {
     if (settingsQuery.data) {
-      setApproveThreshold(String(settingsQuery.data.score_approve_threshold ?? ""));
-      setRejectThreshold(String(settingsQuery.data.score_reject_threshold ?? ""));
+      setApproveThreshold(
+        String(settingsQuery.data.score_approve_threshold ?? ""),
+      );
+      setRejectThreshold(
+        String(settingsQuery.data.score_reject_threshold ?? ""),
+      );
       setRetentionDays(String(settingsQuery.data.retention_days));
     }
   }, [settingsQuery.data]);
@@ -158,8 +173,12 @@ export default function SettingsPage() {
   const settingsMutation = useMutation({
     mutationFn: () =>
       updateSettings(user!.access_token, {
-        score_approve_threshold: approveThreshold ? parseInt(approveThreshold) : undefined,
-        score_reject_threshold: rejectThreshold ? parseInt(rejectThreshold) : undefined,
+        score_approve_threshold: approveThreshold
+          ? parseInt(approveThreshold)
+          : undefined,
+        score_reject_threshold: rejectThreshold
+          ? parseInt(rejectThreshold)
+          : undefined,
         retention_days: parseInt(retentionDays) || 90,
       }),
     onSuccess: () => {
@@ -173,10 +192,12 @@ export default function SettingsPage() {
   const revokedKeys = keysQuery.data?.filter((k) => k.revoked_at) ?? [];
 
   return (
-    <div className="p-6 max-w-3xl space-y-6">
+    <div className="p-6 max-w-3xl mx-auto space-y-6">
       <div>
         <h1 className="text-2xl font-semibold">Settings</h1>
-        <p className="text-muted-foreground text-sm mt-0.5">Manage your account and configuration</p>
+        <p className="text-muted-foreground text-sm mt-0.5">
+          Manage your account and configuration
+        </p>
       </div>
 
       <Tabs defaultValue="profile">
@@ -191,7 +212,9 @@ export default function SettingsPage() {
           <Card>
             <CardHeader>
               <CardTitle>Profile</CardTitle>
-              <CardDescription>Update your name and webhook endpoint</CardDescription>
+              <CardDescription>
+                Update your name and webhook endpoint
+              </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               {meQuery.isLoading ? (
@@ -203,7 +226,10 @@ export default function SettingsPage() {
                 <>
                   <div className="space-y-2">
                     <Label>Name</Label>
-                    <Input value={name} onChange={(e) => setName(e.target.value)} />
+                    <Input
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                    />
                   </div>
                   <div className="space-y-2">
                     <Label>Webhook URL</Label>
@@ -214,7 +240,12 @@ export default function SettingsPage() {
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label>Webhook Secret <span className="text-muted-foreground text-xs">(leave blank to keep current)</span></Label>
+                    <Label>
+                      Webhook Secret{" "}
+                      <span className="text-muted-foreground text-xs">
+                        (leave blank to keep current)
+                      </span>
+                    </Label>
                     <div className="relative">
                       <Input
                         type={showSecret ? "text" : "password"}
@@ -230,7 +261,11 @@ export default function SettingsPage() {
                         className="absolute right-1 top-1 h-7 w-7"
                         onClick={() => setShowSecret((s) => !s)}
                       >
-                        {showSecret ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
+                        {showSecret ? (
+                          <EyeOff className="h-3 w-3" />
+                        ) : (
+                          <Eye className="h-3 w-3" />
+                        )}
                       </Button>
                     </div>
                   </div>
@@ -268,7 +303,9 @@ export default function SettingsPage() {
               </div>
               <Button
                 onClick={() => passwordMutation.mutate()}
-                disabled={passwordMutation.isPending || !currentPwd || newPwd.length < 8}
+                disabled={
+                  passwordMutation.isPending || !currentPwd || newPwd.length < 8
+                }
               >
                 {passwordMutation.isPending ? "Updating…" : "Update password"}
               </Button>
@@ -281,7 +318,9 @@ export default function SettingsPage() {
           <Card>
             <CardHeader>
               <CardTitle>Create API Key</CardTitle>
-              <CardDescription>Keys are shown only once on creation</CardDescription>
+              <CardDescription>
+                Keys are shown only once on creation
+              </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="flex gap-3 flex-wrap">
@@ -324,16 +363,21 @@ export default function SettingsPage() {
               </CardHeader>
               <CardContent className="divide-y">
                 {activeKeys.length === 0 && (
-                  <p className="text-sm text-muted-foreground py-2">No active keys</p>
+                  <p className="text-sm text-muted-foreground py-2">
+                    No active keys
+                  </p>
                 )}
                 {activeKeys.map((k) => (
                   <div key={k.id} className="flex items-center gap-3 py-3">
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium">{k.name}</p>
                       <p className="text-xs text-muted-foreground">
-                        <Badge variant="outline" className="mr-1">{k.environment}</Badge>
+                        <Badge variant="outline" className="mr-1">
+                          {k.environment}
+                        </Badge>
                         Created {fmt(k.created_at)}
-                        {k.last_used_at && ` · Last used ${fmt(k.last_used_at)}`}
+                        {k.last_used_at &&
+                          ` · Last used ${fmt(k.last_used_at)}`}
                       </p>
                     </div>
                     <Button
@@ -354,11 +398,16 @@ export default function SettingsPage() {
           {revokedKeys.length > 0 && (
             <Card>
               <CardHeader>
-                <CardTitle className="text-muted-foreground text-sm">Revoked Keys</CardTitle>
+                <CardTitle className="text-muted-foreground text-sm">
+                  Revoked Keys
+                </CardTitle>
               </CardHeader>
               <CardContent className="divide-y">
                 {revokedKeys.map((k) => (
-                  <div key={k.id} className="flex items-center gap-3 py-3 opacity-50">
+                  <div
+                    key={k.id}
+                    className="flex items-center gap-3 py-3 opacity-50"
+                  >
                     <div className="flex-1">
                       <p className="text-sm line-through">{k.name}</p>
                       <p className="text-xs text-muted-foreground">
@@ -378,7 +427,9 @@ export default function SettingsPage() {
             <CardHeader>
               <CardTitle>Verification Settings</CardTitle>
               <CardDescription>
-                Scores 0–100. Verifications above approve threshold auto-approve; below reject threshold auto-reject; between goes to review queue.
+                Scores 0–100. Verifications above approve threshold
+                auto-approve; below reject threshold auto-reject; between goes
+                to review queue.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -392,7 +443,10 @@ export default function SettingsPage() {
                 <>
                   <div className="grid sm:grid-cols-2 gap-4">
                     <div className="space-y-2">
-                      <Label>Approve threshold <span className="text-muted-foreground">(≥)</span></Label>
+                      <Label>
+                        Approve threshold{" "}
+                        <span className="text-muted-foreground">(≥)</span>
+                      </Label>
                       <Input
                         type="number"
                         min={0}
@@ -403,7 +457,10 @@ export default function SettingsPage() {
                       />
                     </div>
                     <div className="space-y-2">
-                      <Label>Reject threshold <span className="text-muted-foreground">(≤)</span></Label>
+                      <Label>
+                        Reject threshold{" "}
+                        <span className="text-muted-foreground">(≤)</span>
+                      </Label>
                       <Input
                         type="number"
                         min={0}
@@ -416,7 +473,10 @@ export default function SettingsPage() {
                   </div>
                   <Separator />
                   <div className="space-y-2">
-                    <Label>Data retention <span className="text-muted-foreground">(days)</span></Label>
+                    <Label>
+                      Data retention{" "}
+                      <span className="text-muted-foreground">(days)</span>
+                    </Label>
                     <Input
                       type="number"
                       min={1}
@@ -440,7 +500,12 @@ export default function SettingsPage() {
       </Tabs>
 
       {/* New key reveal dialog */}
-      <Dialog open={createdKey !== null} onOpenChange={(open) => { if (!open) setCreatedKey(null); }}>
+      <Dialog
+        open={createdKey !== null}
+        onOpenChange={(open) => {
+          if (!open) setCreatedKey(null);
+        }}
+      >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>API Key Created</DialogTitle>
@@ -449,7 +514,9 @@ export default function SettingsPage() {
             </DialogDescription>
           </DialogHeader>
           <div className="flex items-center gap-2 rounded-md border bg-muted p-3">
-            <code className="flex-1 text-xs break-all font-mono">{createdKey?.raw_key}</code>
+            <code className="flex-1 text-xs break-all font-mono">
+              {createdKey?.raw_key}
+            </code>
             {createdKey && <CopyButton text={createdKey.raw_key} />}
           </div>
           <DialogFooter>
