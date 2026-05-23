@@ -13,11 +13,29 @@ _LEFT_EYE  = [33, 160, 158, 133, 153, 144]
 _RIGHT_EYE = [362, 385, 387, 263, 373, 380]
 
 
+_MEDIAPIPE_AVAILABLE = None
+
 def _get_face_mesh():
-    global _mp_face_mesh
+    global _mp_face_mesh, _MEDIAPIPE_AVAILABLE
+    if _MEDIAPIPE_AVAILABLE is False:
+        return None
     if _mp_face_mesh is None:
-        import mediapipe as mp
-        _mp_face_mesh = mp.solutions.face_mesh
+        try:
+            from mediapipe.python.solutions import face_mesh as _fm
+            _mp_face_mesh = _fm
+            _MEDIAPIPE_AVAILABLE = True
+        except (ImportError, AttributeError):
+            try:
+                import mediapipe as mp
+                _mp_face_mesh = mp.solutions.face_mesh
+                _MEDIAPIPE_AVAILABLE = True
+            except (ImportError, AttributeError):
+                import logging
+                logging.getLogger(__name__).warning(
+                    "[LIVENESS] mediapipe not available on this Python version — liveness check disabled"
+                )
+                _MEDIAPIPE_AVAILABLE = False
+                return None
     return _mp_face_mesh
 
 
@@ -36,9 +54,13 @@ def check_liveness(image_bytes: bytes) -> dict:
     if img is None:
         return {"live": False, "confidence": 0.0, "method": "passive", "flags": ["decode_failed"]}
 
+    mp_face_mesh = _get_face_mesh()
+    if mp_face_mesh is None:
+        # mediapipe unavailable — return neutral result so pipeline continues
+        return {"live": True, "confidence": 0.5, "method": "passive", "flags": ["mediapipe_unavailable"]}
+
     rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
 
-    mp_face_mesh = _get_face_mesh()
     with mp_face_mesh.FaceMesh(
         static_image_mode=True,
         max_num_faces=1,

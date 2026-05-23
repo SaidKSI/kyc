@@ -30,6 +30,13 @@ _RETRY_DELAYS = [60, 120, 240, 480]  # seconds between attempts 1-2, 2-3, 3-4, 4
 @celery_app.task(bind=True, name="services.webhook.dispatch_webhook", max_retries=4)
 def dispatch_webhook(self, verification_id: str) -> None:
     logger.info(f"[WEBHOOK] Starting dispatch for verification_id={verification_id}, attempt={self.request.retries + 1}")
+    # Dispose connection pool so new loop gets fresh connections (avoids
+    # "Future attached to a different loop" from the pipeline's loop)
+    try:
+        from models.database import engine
+        engine.sync_engine.dispose()
+    except Exception:
+        pass
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     try:

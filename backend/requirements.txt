@@ -42,6 +42,9 @@ deepface==0.0.93
 # ML — liveness
 mediapipe==0.10.35
 
+# LLM — OpenAI
+openai>=1.54.0
+
 # Utilities
 python-dotenv==1.0.1
 python-dateutil==2.9.0

@@ -11,6 +11,7 @@ from sqlalchemy.orm.attributes import flag_modified
 
 from models.database import AsyncSessionLocal
 from models.audit import AuditEvent
+from models.users import User
 from models.verification import Verification
 from services.scoring import compute_score
 from services.storage import storage
@@ -21,6 +22,13 @@ logger = logging.getLogger(__name__)
 
 @celery_app.task(bind=True, name="workers.pipeline.run_pipeline", max_retries=0)
 def run_pipeline(self, verification_id: str) -> None:
+    # Dispose pool before new event loop — prevents "Future attached to
+    # a different loop" when task runs after a previous task's loop closed
+    try:
+        from models.database import engine
+        engine.sync_engine.dispose()
+    except Exception:
+        pass
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     try:
@@ -73,7 +81,7 @@ async def _execute(verification_id: str) -> None:
         logger.info(f"[PIPELINE] Running ocr step for document_type={ver.document_type}")
         ocr_result = await _run_step(
             session, ver, "ocr",
-            lambda: _do_ocr(front_bytes, ver.document_type),
+            lambda: _do_ocr(front_bytes, ver.document_type, back_bytes),
         )
         logger.info(f"[PIPELINE] OCR result: {ocr_result}")
 
@@ -91,7 +99,14 @@ async def _execute(verification_id: str) -> None:
             lambda: _do_liveness(selfie_bytes),
         )
 
-        # ── Step 4e: Scoring ──────────────────────────────────────────────
+        # ── Step 4e: LLM vision fraud analysis ───────────────────────────
+        logger.info(f"[PIPELINE] Running llm_analysis step")
+        await _run_step(
+            session, ver, "llm_analysis",
+            lambda: _do_llm_analysis(front_bytes, ver.document_type, ver.extracted_fields, ver.checks),
+        )
+
+        # ── Step 4f: Scoring ──────────────────────────────────────────────
         logger.info(f"[PIPELINE] Running scoring with checks={ver.checks}")
         score_result = compute_score(ver.checks)
         logger.info(f"[PIPELINE] Score result: {score_result}")
@@ -108,6 +123,14 @@ async def _execute(verification_id: str) -> None:
             ver.extracted_fields = ocr_result.get("extracted_fields")
             logger.info(f"[PIPELINE] Extracted fields: {ver.extracted_fields}")
 
+        # ── Step 4g: Rejection / review reason (LLM, text only) ──────────
+        if ver.decision in ("rejected", "review"):
+            logger.info(f"[PIPELINE] Generating rejection reason for decision={ver.decision}")
+            reason = _generate_rejection_reason(ver.checks, ver.decision)
+            ver.checks["rejection_reason"] = reason
+            flag_modified(ver, "checks")
+            logger.info(f"[PIPELINE] Rejection reason: {reason}")
+
         session.add(
             AuditEvent(
                 verification_id=ver.id,
@@ -123,13 +146,24 @@ async def _execute(verification_id: str) -> None:
         await session.commit()
         logger.info(f"[PIPELINE] Verification {verification_id} completed with status={ver.status}, score={ver.score}")
 
-    # Webhook dispatch (async task)
-    try:
-        from services.webhook import dispatch_webhook
-        logger.info(f"[PIPELINE] Dispatching webhook for verification_id={verification_id}")
-        dispatch_webhook.apply_async(args=[verification_id])
-    except Exception as e:
-        logger.error(f"[PIPELINE] Failed to dispatch webhook: {e}", exc_info=True)
+        # Check webhook URL while session is still open — avoid queuing
+        # a Celery task for users who have no webhook configured
+        user_result = await session.execute(
+            select(User).where(User.id == ver.user_id)
+        )
+        user = user_result.scalar_one_or_none()
+        has_webhook = bool(user and user.webhook_url)
+
+    # Webhook dispatch — only if user has a webhook URL configured
+    if has_webhook:
+        try:
+            from services.webhook import dispatch_webhook
+            logger.info(f"[PIPELINE] Dispatching webhook for verification_id={verification_id}")
+            dispatch_webhook.apply_async(args=[verification_id])
+        except Exception as e:
+            logger.error(f"[PIPELINE] Failed to dispatch webhook: {e}", exc_info=True)
+    else:
+        logger.info(f"[PIPELINE] No webhook URL configured for user — skipping dispatch")
 
 
 async def _run_step(session, ver, step_name: str, fn) -> dict:
@@ -186,9 +220,9 @@ def _do_doc_auth(front_bytes: bytes, back_bytes: bytes | None) -> dict:
     return result
 
 
-def _do_ocr(front_bytes: bytes, document_type: str) -> dict:
+def _do_ocr(front_bytes: bytes, document_type: str, back_bytes: bytes | None) -> dict:
     from workers.ocr import run_ocr
-    return run_ocr(front_bytes, document_type)
+    return run_ocr(front_bytes, document_type, back_bytes=back_bytes)
 
 
 def _do_face_match(front_bytes: bytes, selfie_bytes: bytes) -> dict:
@@ -199,3 +233,99 @@ def _do_face_match(front_bytes: bytes, selfie_bytes: bytes) -> dict:
 def _do_liveness(selfie_bytes: bytes) -> dict:
     from workers.liveness import check_liveness
     return check_liveness(selfie_bytes)
+
+
+def _do_llm_analysis(
+    front_bytes: bytes,
+    document_type: str,
+    extracted_fields: dict | None,
+    checks: dict | None,
+) -> dict:
+    from workers.llm_analysis import run_llm_analysis
+    return run_llm_analysis(front_bytes, document_type, extracted_fields, checks)
+
+
+def _generate_rejection_reason(checks: dict, decision: str) -> dict:
+    """
+    GPT-4o-mini generates a safe, generic user-facing message from check flags.
+    Never exposes specific check details or PII.
+    """
+    import os, json, logging
+    log = logging.getLogger(__name__)
+
+    api_key = os.environ.get("OPENAI_API_KEY", "")
+    if not api_key or api_key == "sk-your-key-here":
+        return {"skipped": True, "message": _fallback_reason(checks, decision)}
+
+    try:
+        from openai import OpenAI
+        client = OpenAI(api_key=api_key)
+
+        # Summarise signals — no PII, no field values
+        signals = []
+        ocr = checks.get("ocr", {})
+        doc_auth = checks.get("doc_auth", {})
+        face = checks.get("face_match", {})
+        liveness = checks.get("liveness", {})
+        llm = checks.get("llm_analysis", {})
+
+        if ocr.get("validation_flags"):
+            signals.extend(ocr["validation_flags"])
+        if [k for k, v in ocr.get("viz_mrz_cross_check", {}).items() if v == "mismatch"]:
+            signals.append("data_field_inconsistency")
+        if ocr.get("mrz_valid") is False:
+            signals.append("mrz_checksum_failed")
+        if not doc_auth.get("authentic"):
+            signals.extend(doc_auth.get("flags", []))
+        if not face.get("match"):
+            signals.append("face_mismatch")
+        if not liveness.get("live"):
+            signals.append("liveness_failed")
+        if llm.get("authentic_assessment") in ("suspicious", "likely_fake"):
+            signals.append(f"document_{llm['authentic_assessment'].replace(' ', '_')}")
+        if llm.get("doc_type_confirmed") is False:
+            signals.append("doc_type_mismatch")
+
+        prompt = f"""You are writing a KYC verification result message for an end user.
+Decision: {decision}
+Internal signals (do NOT expose these directly): {signals}
+
+Write a helpful, polite, 1–2 sentence message explaining the result.
+Rules:
+- Do NOT mention specific technical checks, scores, or field names
+- Do NOT reveal which specific check failed
+- Be generic but helpful — guide the user on what to try
+- Use simple language (no jargon)
+- If decision is "review": explain their submission is under manual review
+
+Return ONLY valid JSON: {{"message": "<user-facing message>", "category": "<main_issue>"}}
+Categories: document_quality | document_expired | identity_mismatch | document_invalid | under_review"""
+
+        resp = client.chat.completions.create(
+            model=os.environ.get("OPENAI_MODEL", "gpt-4o-mini"),
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.3,
+            max_tokens=200,
+            response_format={"type": "json_object"},
+        )
+        result = json.loads(resp.choices[0].message.content)
+        log.info(f"[PIPELINE] Rejection reason: {result}")
+        return result
+
+    except Exception as exc:
+        log.error(f"[PIPELINE] Rejection reason generation failed: {exc}", exc_info=True)
+        return {"skipped": True, "message": _fallback_reason(checks, decision)}
+
+
+def _fallback_reason(checks: dict, decision: str) -> str:
+    """Static fallback when OpenAI is unavailable."""
+    if decision == "review":
+        return "Your submission is under manual review. We will notify you of the outcome shortly."
+    ocr = checks.get("ocr", {})
+    if "document_expired" in ocr.get("validation_flags", []):
+        return "Your document appears to be expired. Please resubmit with a valid document."
+    if not checks.get("face_match", {}).get("match"):
+        return "We could not confirm your identity. Please ensure your selfie clearly shows your face."
+    if not checks.get("liveness", {}).get("live"):
+        return "We could not verify a live selfie. Please retake your selfie in good lighting."
+    return "We were unable to verify your identity. Please ensure your document is clear, valid, and unobstructed."
