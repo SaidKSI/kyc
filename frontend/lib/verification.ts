@@ -66,6 +66,7 @@ export interface SessionInfoResponse {
   document_type: DocumentType;
   locale: string;
   status: VerificationStatus;
+  require_selfie: boolean;
   redirect_url: string | null;
   expires_at: string | null;
 }

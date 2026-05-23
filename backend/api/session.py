@@ -18,9 +18,12 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
 
+from sqlalchemy import select
+
 from api.deps import get_verification_by_token
 from models.audit import AuditEvent
 from models.database import AsyncSessionLocal, get_session
+from models.user_settings import UserSettings
 from models.verification import Verification
 from schemas.verification import SessionInfoResponse, SubmitResponse, VerificationStatusResponse
 from services.storage import storage
@@ -36,12 +39,22 @@ _MAX_FILE_BYTES = 10 * 1024 * 1024  # 10 MB
 @router.get("/{token}", response_model=SessionInfoResponse)
 async def get_session_info(
     ver: Verification = Depends(get_verification_by_token),
+    session: AsyncSession = Depends(get_session),
 ):
+    require_selfie = True
+    result = await session.execute(
+        select(UserSettings).where(UserSettings.user_id == ver.user_id)
+    )
+    settings = result.scalar_one_or_none()
+    if settings:
+        require_selfie = settings.require_selfie
+
     return SessionInfoResponse(
         verification_id=ver.id,
         document_type=ver.document_type,
         locale=ver.locale,
         status=ver.status,
+        require_selfie=require_selfie,
         redirect_url=ver.redirect_url,
         expires_at=ver.session_expires_at,
     )
@@ -102,7 +115,16 @@ async def session_submit(
 
     if not ver.doc_front_key:
         raise HTTPException(status_code=422, detail="doc_front image required before submit")
-    if not ver.selfie_key:
+
+    require_selfie = True
+    result = await session.execute(
+        select(UserSettings).where(UserSettings.user_id == ver.user_id)
+    )
+    settings = result.scalar_one_or_none()
+    if settings:
+        require_selfie = settings.require_selfie
+
+    if require_selfie and not ver.selfie_key:
         raise HTTPException(status_code=422, detail="selfie image required before submit")
 
     ver.status = "processing"

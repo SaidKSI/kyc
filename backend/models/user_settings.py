@@ -17,6 +17,7 @@ class UserSettings(Base):
     )
     allowed_doc_types: Mapped[list[str] | None] = mapped_column(ARRAY(Text), nullable=True)
     require_liveness: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    require_selfie: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     retention_days: Mapped[int] = mapped_column(Integer, nullable=False, default=90)
     allowed_origins: Mapped[list[str] | None] = mapped_column(ARRAY(Text), nullable=True)
     score_approve_threshold: Mapped[int | None] = mapped_column(Integer, nullable=True)

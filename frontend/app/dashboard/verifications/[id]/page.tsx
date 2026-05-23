@@ -157,6 +157,8 @@ export default function VerificationDetailPage() {
           <Card>
             <CardHeader><CardTitle>Details</CardTitle></CardHeader>
             <CardContent className="grid sm:grid-cols-2 gap-x-8 gap-y-3 text-sm">
+              <Field label="Verification token" value={ver.verification_id} capitalize={false} />
+              <Field label="Reference ID" value={ver.reference_id} capitalize={false} />
               <Field label="Document type" value={ver.document_type.replace(/_/g, " ")} capitalize />
               <Field label="Locale" value={ver.locale} />
               <Field label="Decision" value={ver.decision ?? "—"} capitalize />

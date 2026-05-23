@@ -21,11 +21,42 @@ $webLog    = "$root\frontend\logs\dev.log"
 New-Item -ItemType Directory -Force -Path "$root\backend\logs"  | Out-Null
 New-Item -ItemType Directory -Force -Path "$root\frontend\logs" | Out-Null
 
+# Clear all log files
+Remove-Item $apiLog, $workerLog, $webLog -Force -ErrorAction SilentlyContinue
+
+# Kill any existing processes on ports 8000, 3000, and cleanup stale processes
+Write-Host ""
+Write-Host "  Checking for existing servers..." -ForegroundColor Gray
+
+$ports = @(8000, 3000)
+foreach ($port in $ports) {
+    $procs = Get-NetTCPConnection -LocalPort $port -ErrorAction SilentlyContinue |
+             Where-Object { $_.State -eq "Listen" }
+
+    if ($procs) {
+        foreach ($proc in $procs) {
+            $pid = $proc.OwningProcess
+            $name = (Get-Process -Id $pid -ErrorAction SilentlyContinue).Name
+            Write-Host "  [INFO] Port $port already in use (PID $pid, $name). Killing..." -ForegroundColor Yellow
+            taskkill /F /T /PID $pid 2>&1 | Out-Null
+            Start-Sleep -Milliseconds 500
+        }
+    }
+}
+
+# Kill any lingering uvicorn/celery/node processes
+$staleProcs = Get-Process -Name "uvicorn", "celery", "node" -ErrorAction SilentlyContinue
+if ($staleProcs) {
+    Write-Host "  [INFO] Found stale processes, cleaning up..." -ForegroundColor Yellow
+    $staleProcs | Stop-Process -Force -ErrorAction SilentlyContinue
+    Start-Sleep -Milliseconds 500
+}
+
 # Overwrite logs with a fresh header each run
 $stamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-"[$stamp] === KYC API server starting ===" | Out-File $apiLog    -Encoding utf8
-"[$stamp] === KYC Celery worker starting ===" | Out-File $workerLog -Encoding utf8
-"[$stamp] === KYC Frontend starting ===" | Out-File $webLog    -Encoding utf8
+"[$stamp] === KYC API server starting ===" | Out-File $apiLog    -Encoding utf8 -Force
+"[$stamp] === KYC Celery worker starting ===" | Out-File $workerLog -Encoding utf8 -Force
+"[$stamp] === KYC Frontend starting ===" | Out-File $webLog    -Encoding utf8 -Force
 
 Write-Host ""
 Write-Host "  KYC Dev Servers" -ForegroundColor Cyan

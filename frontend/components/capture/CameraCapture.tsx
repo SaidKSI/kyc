@@ -134,28 +134,28 @@ export function CameraCapture({ label, hint, overlayShape, facingMode, onCapture
   };
 
   return (
-    <div className="flex flex-col min-h-dvh bg-zinc-950 sm:min-h-0 sm:rounded-2xl sm:overflow-hidden sm:border sm:border-zinc-200 sm:shadow-sm sm:bg-white">
+    <div className="fixed inset-0 sm:fixed sm:inset-0 flex flex-col sm:relative sm:min-h-0 sm:rounded-2xl sm:border sm:border-zinc-200 sm:overflow-hidden sm:bg-white">
 
-      {/* Header */}
-      <div className="flex items-center gap-3 px-4 pt-12 pb-3 sm:pt-5 sm:bg-white sm:border-b sm:border-zinc-100">
+      {/* Header — compact, minimal */}
+      <div className="flex items-start justify-between px-4 pt-4 pb-2 sm:px-5 sm:pt-4 sm:pb-3 bg-transparent flex-shrink-0">
+        <div className="flex-1">
+          <h2 className="text-lg font-semibold text-zinc-900">{label}</h2>
+          <p className="text-sm text-zinc-500 mt-1">{hint}</p>
+        </div>
         {onBack && (
-          <button onClick={onBack} className="text-zinc-400 hover:text-white sm:hover:text-zinc-900 transition-colors p-1 -ml-1">
-            <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-              <path d="M12.5 15L7.5 10L12.5 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+          <button onClick={onBack} className="text-zinc-400 hover:text-zinc-600 transition-colors p-1 ml-2 flex-shrink-0">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+              <path d="M15 18L9 12L15 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
             </svg>
           </button>
         )}
-        <div>
-          <h2 className="text-base font-semibold text-white sm:text-zinc-900">{label}</h2>
-          <p className="text-xs text-zinc-400 sm:text-zinc-500 mt-0.5">{hint}</p>
-        </div>
       </div>
 
-      {/* Camera / Preview */}
-      <div className="relative flex-1 sm:flex-none sm:aspect-[4/3] bg-zinc-950 overflow-hidden">
+      {/* Camera / Preview — full flex space */}
+      <div className="relative flex-1 bg-zinc-950 overflow-hidden flex items-center justify-center">
         {preview ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={preview} alt="Captured" className="w-full h-full object-cover" />
+          <img src={preview} alt="Captured" className="w-full h-full object-contain" />
         ) : !cameraFailed ? (
           <>
             <Webcam
@@ -180,7 +180,7 @@ export function CameraCapture({ label, hint, overlayShape, facingMode, onCapture
             </div>
           </>
         ) : (
-          <div className="w-full h-full min-h-[240px] flex flex-col items-center justify-center gap-3 text-zinc-500">
+          <div className="w-full h-full flex flex-col items-center justify-center gap-3 text-zinc-500">
             <Camera className="w-12 h-12 text-zinc-600" />
             <p className="text-sm">Camera unavailable — use file upload</p>
           </div>
@@ -200,45 +200,51 @@ export function CameraCapture({ label, hint, overlayShape, facingMode, onCapture
         )}
       </div>
 
-      {/* Controls */}
-      <div className="px-4 py-5 pb-8 sm:pb-5 space-y-2.5 bg-zinc-950 sm:bg-white sm:border-t sm:border-zinc-100">
+      {/* Controls — bottom bar, minimal */}
+      <div className="px-4 py-4 sm:py-3 space-y-2 bg-transparent flex-shrink-0">
         {!preview ? (
           <>
             {!cameraFailed && (
-              <Button
-                onClick={handleCaptureClick}
-                disabled={processing}
-                className="w-full h-14 sm:h-11 text-base sm:text-sm bg-white text-zinc-900 hover:bg-zinc-100 sm:bg-zinc-900 sm:text-white sm:hover:bg-zinc-700"
-              >
-                <Camera className="w-5 h-5 mr-2" />
-                {processing ? "Checking..." : "Take Photo"}
-              </Button>
+              <div className="flex justify-center pt-2">
+                <Button
+                  onClick={handleCaptureClick}
+                  disabled={processing}
+                  size="icon"
+                  className="h-16 w-16 sm:h-14 sm:w-14 rounded-full bg-white text-zinc-900 hover:bg-zinc-100 transition-colors shadow-lg hover:shadow-xl"
+                >
+                  <Camera className="w-6 h-6 sm:w-5 sm:h-5" />
+                </Button>
+              </div>
             )}
-            <Button
-              variant="ghost"
-              onClick={() => fileInputRef.current?.click()}
-              disabled={processing}
-              className="w-full h-12 sm:h-10 text-zinc-400 hover:text-white sm:text-zinc-600 sm:hover:text-zinc-900 hover:bg-zinc-800 sm:hover:bg-zinc-50"
-            >
-              <Upload className="w-4 h-4 mr-2" />
-              Upload from Device
-            </Button>
-            <input ref={fileInputRef} type="file" accept="image/*" onChange={handleFileChange} className="hidden" />
+            {process.env.NODE_ENV === "development" && (
+              <>
+                <Button
+                  variant="ghost"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={processing}
+                  className="w-full h-10 text-sm text-zinc-600 hover:text-zinc-900 hover:bg-zinc-50"
+                >
+                  <Upload className="w-4 h-4 mr-2" />
+                  Upload from Device
+                </Button>
+                <input ref={fileInputRef} type="file" accept="image/*" onChange={handleFileChange} className="hidden" />
+              </>
+            )}
           </>
         ) : qualityError ? (
-          <Button onClick={handleRetake} className="w-full h-14 sm:h-11 bg-white text-zinc-900 hover:bg-zinc-100 sm:bg-zinc-900 sm:text-white sm:hover:bg-zinc-700">
+          <Button onClick={handleRetake} className="w-full h-12 sm:h-10 text-sm bg-zinc-900 text-white hover:bg-zinc-800 transition-colors">
             <RotateCcw className="w-4 h-4 mr-2" />
             Try Again
           </Button>
         ) : (
-          <div className="flex gap-2.5">
-            <Button onClick={handleRetake} variant="ghost" className="flex-1 h-14 sm:h-11 text-zinc-400 hover:text-white sm:text-zinc-600 sm:hover:text-zinc-900 hover:bg-zinc-800 sm:hover:bg-zinc-50">
+          <div className="flex gap-2">
+            <Button onClick={handleRetake} variant="ghost" className="flex-1 h-12 sm:h-10 text-sm text-zinc-600 hover:text-zinc-900 hover:bg-zinc-50">
               <RotateCcw className="w-4 h-4 mr-2" />
               Retake
             </Button>
             <Button
               onClick={() => pendingImage && onCapture(pendingImage)}
-              className="flex-1 h-14 sm:h-11 bg-white text-zinc-900 hover:bg-zinc-100 sm:bg-zinc-900 sm:text-white sm:hover:bg-zinc-700"
+              className="flex-1 h-12 sm:h-10 text-sm bg-zinc-900 text-white hover:bg-zinc-800 transition-colors"
             >
               <CheckCircle className="w-4 h-4 mr-2" />
               Use Photo

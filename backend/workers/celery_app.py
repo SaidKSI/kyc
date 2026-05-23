@@ -11,7 +11,7 @@ celery_app = Celery(
     "kyc",
     broker=settings.redis_url,
     backend=settings.redis_url,
-    include=["workers.pipeline"],
+    include=["workers.pipeline", "services.webhook"],
 )
 
 celery_app.conf.update(

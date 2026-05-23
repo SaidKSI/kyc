@@ -1,7 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import * as React from "react";
+import { useEffect } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { z } from "zod";
 import { useAuth } from "@/hooks/use-auth";
 import {
   getMe,
@@ -11,6 +16,7 @@ import {
   updateSettings,
   listKeys,
   createKey,
+  regenerateKey,
   revokeKey,
   type ApiKeyCreated,
 } from "@/lib/dashboard-api";
@@ -36,11 +42,65 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Copy, Check, Eye, EyeOff, Plus, Trash2 } from "lucide-react";
+import { Copy, Check, Eye, EyeOff, Plus, Trash2, X, RotateCw } from "lucide-react";
 import { toast } from "sonner";
 
+const DOC_TYPES = [
+  { value: "national_id", label: "National ID" },
+  { value: "passport", label: "Passport" },
+  { value: "residence_permit", label: "Residence Permit" },
+  { value: "drivers_license", label: "Driver's License" },
+];
+
+// ── Schemas ──────────────────────────────────────────────────────────────
+const profileSchema = z.object({
+  name: z.string().min(1, "Name is required").max(255),
+  webhook_url: z.string().url("Invalid URL").or(z.literal("")).optional(),
+  webhook_secret: z.string().optional(),
+});
+
+const passwordSchema = z
+  .object({
+    current_password: z.string().min(1, "Current password required"),
+    new_password: z
+      .string()
+      .min(8, "Password must be at least 8 characters"),
+    confirm_password: z.string(),
+  })
+  .refine((d) => d.new_password === d.confirm_password, {
+    message: "Passwords don't match",
+    path: ["confirm_password"],
+  });
+
+const settingsSchema = z.object({
+  allowed_doc_types: z.array(z.string()).optional(),
+  require_liveness: z.boolean().default(true),
+  require_selfie: z.boolean().default(true),
+  retention_days: z.number().min(1).max(3650).default(90),
+  allowed_origins: z
+    .array(z.string().url("Invalid URL"))
+    .optional()
+    .refine((v) => !v || v.length >= 0, "Invalid origins"),
+  score_approve_threshold: z
+    .number()
+    .min(0)
+    .max(100)
+    .optional()
+    .nullable(),
+  score_reject_threshold: z
+    .number()
+    .min(0)
+    .max(100)
+    .optional()
+    .nullable(),
+});
+
+type ProfileFormData = z.infer<typeof profileSchema>;
+type PasswordFormData = z.infer<typeof passwordSchema>;
+type SettingsFormData = z.infer<typeof settingsSchema>;
+
 function CopyButton({ text }: { text: string }) {
-  const [copied, setCopied] = useState(false);
+  const [copied, setCopied] = React.useState(false);
   return (
     <Button
       variant="ghost"
@@ -63,7 +123,15 @@ function fmt(iso: string) {
 
 export default function SettingsPage() {
   const { user } = useAuth();
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const qc = useQueryClient();
+
+  const currentTab = searchParams.get("tab") || "profile";
+
+  const handleTabChange = (tab: string) => {
+    router.push(`?tab=${tab}`);
+  };
 
   const meQuery = useQuery({
     queryKey: ["me"],
@@ -78,25 +146,27 @@ export default function SettingsPage() {
     queryFn: () => listKeys(user!.access_token),
   });
 
-  // ── Profile form ─────────────────────────────────────────────────────────────
-  const [name, setName] = useState("");
-  const [webhookUrl, setWebhookUrl] = useState("");
-  const [webhookSecret, setWebhookSecret] = useState("");
-  const [showSecret, setShowSecret] = useState(false);
+  // ── Profile form ─────────────────────────────────────────────────────────
+  const profileForm = useForm<ProfileFormData>({
+    resolver: zodResolver(profileSchema),
+    defaultValues: { name: "", webhook_url: "", webhook_secret: "" },
+  });
 
   useEffect(() => {
     if (meQuery.data) {
-      setName(meQuery.data.name);
-      setWebhookUrl(meQuery.data.webhook_url ?? "");
+      profileForm.reset({
+        name: meQuery.data.name,
+        webhook_url: meQuery.data.webhook_url ?? "",
+      });
     }
-  }, [meQuery.data]);
+  }, [meQuery.data, profileForm]);
 
   const profileMutation = useMutation({
-    mutationFn: () =>
+    mutationFn: (data: ProfileFormData) =>
       updateMe(user!.access_token, {
-        name,
-        webhook_url: webhookUrl || undefined,
-        webhook_secret: webhookSecret || undefined,
+        name: data.name,
+        webhook_url: data.webhook_url || undefined,
+        webhook_secret: data.webhook_secret || undefined,
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["me"] });
@@ -105,30 +175,79 @@ export default function SettingsPage() {
     onError: (e: Error) => toast.error(e.message),
   });
 
-  // ── Password form ─────────────────────────────────────────────────────────────
-  const [currentPwd, setCurrentPwd] = useState("");
-  const [newPwd, setNewPwd] = useState("");
+  // ── Password form ────────────────────────────────────────────────────────
+  const passwordForm = useForm<PasswordFormData>({
+    resolver: zodResolver(passwordSchema),
+    defaultValues: { current_password: "", new_password: "", confirm_password: "" },
+  });
 
   const passwordMutation = useMutation({
-    mutationFn: () =>
+    mutationFn: (data: PasswordFormData) =>
       changePassword(user!.access_token, {
-        current_password: currentPwd,
-        new_password: newPwd,
+        current_password: data.current_password,
+        new_password: data.new_password,
       }),
     onSuccess: () => {
       toast.success("Password changed");
-      setCurrentPwd("");
-      setNewPwd("");
+      passwordForm.reset();
     },
     onError: (e: Error) => toast.error(e.message),
   });
 
-  // ── API key creation ──────────────────────────────────────────────────────────
-  const [newKeyName, setNewKeyName] = useState("");
-  const [newKeyEnv, setNewKeyEnv] = useState<"sandbox" | "production">(
-    "sandbox",
+  // ── Settings form ────────────────────────────────────────────────────────
+  const settingsForm = useForm<SettingsFormData>({
+    resolver: zodResolver(settingsSchema),
+    defaultValues: {
+      allowed_doc_types: [],
+      require_liveness: true,
+      require_selfie: true,
+      retention_days: 90,
+      allowed_origins: [],
+      score_approve_threshold: null,
+      score_reject_threshold: null,
+    },
+  });
+
+  useEffect(() => {
+    if (settingsQuery.data) {
+      settingsForm.reset({
+        allowed_doc_types: settingsQuery.data.allowed_doc_types ?? [],
+        require_liveness: settingsQuery.data.require_liveness ?? true,
+        require_selfie: settingsQuery.data.require_selfie ?? true,
+        retention_days: settingsQuery.data.retention_days ?? 90,
+        allowed_origins: settingsQuery.data.allowed_origins ?? [],
+        score_approve_threshold:
+          settingsQuery.data.score_approve_threshold ?? null,
+        score_reject_threshold:
+          settingsQuery.data.score_reject_threshold ?? null,
+      });
+    }
+  }, [settingsQuery.data, settingsForm]);
+
+  const settingsMutation = useMutation({
+    mutationFn: (data: SettingsFormData) =>
+      updateSettings(user!.access_token, {
+        allowed_doc_types: data.allowed_doc_types,
+        require_liveness: data.require_liveness,
+        retention_days: data.retention_days,
+        allowed_origins: data.allowed_origins,
+        score_approve_threshold: data.score_approve_threshold,
+        score_reject_threshold: data.score_reject_threshold,
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["settings"] });
+      toast.success("Settings saved");
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  // ── API key creation ──────────────────────────────────────────────────────
+  const [newKeyName, setNewKeyName] = React.useState("");
+  const [newKeyEnv, setNewKeyEnv] = React.useState<"sandbox" | "production">(
+    "sandbox"
   );
-  const [createdKey, setCreatedKey] = useState<ApiKeyCreated | null>(null);
+  const [createdKey, setCreatedKey] = React.useState<ApiKeyCreated | null>(null);
+  const [keyAction, setKeyAction] = React.useState<"create" | "regenerate">("create");
 
   const createKeyMutation = useMutation({
     mutationFn: () =>
@@ -139,7 +258,20 @@ export default function SettingsPage() {
     onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ["keys"] });
       setCreatedKey(data);
+      setKeyAction("create");
       setNewKeyName("");
+      toast.success("API key created");
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const regenerateKeyMutation = useMutation({
+    mutationFn: (keyId: string) => regenerateKey(user!.access_token, keyId),
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ["keys"] });
+      setCreatedKey(data);
+      setKeyAction("regenerate");
+      toast.success("API key regenerated");
     },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -153,43 +285,7 @@ export default function SettingsPage() {
     onError: (e: Error) => toast.error(e.message),
   });
 
-  // ── Verification settings ────────────────────────────────────────────────────
-  const [approveThreshold, setApproveThreshold] = useState<string>("");
-  const [rejectThreshold, setRejectThreshold] = useState<string>("");
-  const [retentionDays, setRetentionDays] = useState<string>("90");
-
-  useEffect(() => {
-    if (settingsQuery.data) {
-      setApproveThreshold(
-        String(settingsQuery.data.score_approve_threshold ?? ""),
-      );
-      setRejectThreshold(
-        String(settingsQuery.data.score_reject_threshold ?? ""),
-      );
-      setRetentionDays(String(settingsQuery.data.retention_days));
-    }
-  }, [settingsQuery.data]);
-
-  const settingsMutation = useMutation({
-    mutationFn: () =>
-      updateSettings(user!.access_token, {
-        score_approve_threshold: approveThreshold
-          ? parseInt(approveThreshold)
-          : undefined,
-        score_reject_threshold: rejectThreshold
-          ? parseInt(rejectThreshold)
-          : undefined,
-        retention_days: parseInt(retentionDays) || 90,
-      }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["settings"] });
-      toast.success("Settings saved");
-    },
-    onError: (e: Error) => toast.error(e.message),
-  });
-
   const activeKeys = keysQuery.data?.filter((k) => !k.revoked_at) ?? [];
-  const revokedKeys = keysQuery.data?.filter((k) => k.revoked_at) ?? [];
 
   return (
     <div className="p-6 max-w-3xl mx-auto space-y-6">
@@ -200,7 +296,7 @@ export default function SettingsPage() {
         </p>
       </div>
 
-      <Tabs defaultValue="profile">
+      <Tabs value={currentTab} onValueChange={handleTabChange}>
         <TabsList>
           <TabsTrigger value="profile">Profile</TabsTrigger>
           <TabsTrigger value="keys">API Keys</TabsTrigger>
@@ -221,26 +317,37 @@ export default function SettingsPage() {
                 <div className="space-y-3">
                   <Skeleton className="h-9" />
                   <Skeleton className="h-9" />
+                  <Skeleton className="h-9" />
                 </div>
               ) : (
                 <>
                   <div className="space-y-2">
-                    <Label>Name</Label>
+                    <Label htmlFor="name">Name</Label>
                     <Input
-                      value={name}
-                      onChange={(e) => setName(e.target.value)}
+                      id="name"
+                      {...profileForm.register("name")}
                     />
+                    {profileForm.formState.errors.name && (
+                      <p className="text-sm text-destructive">
+                        {profileForm.formState.errors.name.message}
+                      </p>
+                    )}
                   </div>
                   <div className="space-y-2">
-                    <Label>Webhook URL</Label>
+                    <Label htmlFor="webhook_url">Webhook URL</Label>
                     <Input
+                      id="webhook_url"
                       placeholder="https://yourapp.com/webhooks/kyc"
-                      value={webhookUrl}
-                      onChange={(e) => setWebhookUrl(e.target.value)}
+                      {...profileForm.register("webhook_url")}
                     />
+                    {profileForm.formState.errors.webhook_url && (
+                      <p className="text-sm text-destructive">
+                        {profileForm.formState.errors.webhook_url.message}
+                      </p>
+                    )}
                   </div>
                   <div className="space-y-2">
-                    <Label>
+                    <Label htmlFor="webhook_secret">
                       Webhook Secret{" "}
                       <span className="text-muted-foreground text-xs">
                         (leave blank to keep current)
@@ -248,10 +355,10 @@ export default function SettingsPage() {
                     </Label>
                     <div className="relative">
                       <Input
-                        type={showSecret ? "text" : "password"}
+                        id="webhook_secret"
+                        type="password"
                         placeholder="New secret…"
-                        value={webhookSecret}
-                        onChange={(e) => setWebhookSecret(e.target.value)}
+                        {...profileForm.register("webhook_secret")}
                         className="pr-10"
                       />
                       <Button
@@ -259,18 +366,22 @@ export default function SettingsPage() {
                         variant="ghost"
                         size="icon"
                         className="absolute right-1 top-1 h-7 w-7"
-                        onClick={() => setShowSecret((s) => !s)}
+                        onClick={() => {
+                          const input = document.getElementById(
+                            "webhook_secret"
+                          ) as HTMLInputElement;
+                          input.type =
+                            input.type === "password" ? "text" : "password";
+                        }}
                       >
-                        {showSecret ? (
-                          <EyeOff className="h-3 w-3" />
-                        ) : (
-                          <Eye className="h-3 w-3" />
-                        )}
+                        <Eye className="h-3 w-3" />
                       </Button>
                     </div>
                   </div>
                   <Button
-                    onClick={() => profileMutation.mutate()}
+                    onClick={profileForm.handleSubmit((data) =>
+                      profileMutation.mutate(data)
+                    )}
                     disabled={profileMutation.isPending}
                   >
                     {profileMutation.isPending ? "Saving…" : "Save changes"}
@@ -286,26 +397,49 @@ export default function SettingsPage() {
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="space-y-2">
-                <Label>Current password</Label>
+                <Label htmlFor="current_password">Current password</Label>
                 <Input
+                  id="current_password"
                   type="password"
-                  value={currentPwd}
-                  onChange={(e) => setCurrentPwd(e.target.value)}
+                  {...passwordForm.register("current_password")}
                 />
+                {passwordForm.formState.errors.current_password && (
+                  <p className="text-sm text-destructive">
+                    {passwordForm.formState.errors.current_password.message}
+                  </p>
+                )}
               </div>
               <div className="space-y-2">
-                <Label>New password</Label>
+                <Label htmlFor="new_password">New password</Label>
                 <Input
+                  id="new_password"
                   type="password"
-                  value={newPwd}
-                  onChange={(e) => setNewPwd(e.target.value)}
+                  {...passwordForm.register("new_password")}
                 />
+                {passwordForm.formState.errors.new_password && (
+                  <p className="text-sm text-destructive">
+                    {passwordForm.formState.errors.new_password.message}
+                  </p>
+                )}
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="confirm_password">Confirm password</Label>
+                <Input
+                  id="confirm_password"
+                  type="password"
+                  {...passwordForm.register("confirm_password")}
+                />
+                {passwordForm.formState.errors.confirm_password && (
+                  <p className="text-sm text-destructive">
+                    {passwordForm.formState.errors.confirm_password.message}
+                  </p>
+                )}
               </div>
               <Button
-                onClick={() => passwordMutation.mutate()}
-                disabled={
-                  passwordMutation.isPending || !currentPwd || newPwd.length < 8
-                }
+                onClick={passwordForm.handleSubmit((data) =>
+                  passwordMutation.mutate(data)
+                )}
+                disabled={passwordMutation.isPending}
               >
                 {passwordMutation.isPending ? "Updating…" : "Update password"}
               </Button>
@@ -380,39 +514,27 @@ export default function SettingsPage() {
                           ` · Last used ${fmt(k.last_used_at)}`}
                       </p>
                     </div>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-7 w-7 text-destructive hover:text-destructive"
-                      onClick={() => revokeKeyMutation.mutate(k.id)}
-                      disabled={revokeKeyMutation.isPending}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </div>
-                ))}
-              </CardContent>
-            </Card>
-          )}
-
-          {revokedKeys.length > 0 && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-muted-foreground text-sm">
-                  Revoked Keys
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="divide-y">
-                {revokedKeys.map((k) => (
-                  <div
-                    key={k.id}
-                    className="flex items-center gap-3 py-3 opacity-50"
-                  >
-                    <div className="flex-1">
-                      <p className="text-sm line-through">{k.name}</p>
-                      <p className="text-xs text-muted-foreground">
-                        Revoked {k.revoked_at ? fmt(k.revoked_at) : ""}
-                      </p>
+                    <div className="flex gap-1">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7 text-amber-600 hover:text-amber-700"
+                        title="Regenerate key"
+                        onClick={() => regenerateKeyMutation.mutate(k.id)}
+                        disabled={regenerateKeyMutation.isPending}
+                      >
+                        <RotateCw className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7 text-destructive hover:text-destructive"
+                        title="Revoke key"
+                        onClick={() => revokeKeyMutation.mutate(k.id)}
+                        disabled={revokeKeyMutation.isPending}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
                     </div>
                   </div>
                 ))}
@@ -422,72 +544,279 @@ export default function SettingsPage() {
         </TabsContent>
 
         {/* ── Verification Settings ── */}
-        <TabsContent value="verification" className="pt-4">
+        <TabsContent value="verification" className="space-y-4 pt-4">
           <Card>
             <CardHeader>
               <CardTitle>Verification Settings</CardTitle>
               <CardDescription>
-                Scores 0–100. Verifications above approve threshold
-                auto-approve; below reject threshold auto-reject; between goes
-                to review queue.
+                Configure document types, liveness detection, data retention,
+                and scoring thresholds
               </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-4">
+            <CardContent className="space-y-6">
               {settingsQuery.isLoading ? (
                 <div className="space-y-3">
+                  <Skeleton className="h-9" />
+                  <Skeleton className="h-9" />
                   <Skeleton className="h-9" />
                   <Skeleton className="h-9" />
                   <Skeleton className="h-9" />
                 </div>
               ) : (
                 <>
+                  {/* Allowed document types */}
+                  <div className="space-y-3">
+                    <Label>Allowed Document Types</Label>
+                    <div className="space-y-2">
+                      {DOC_TYPES.map((type) => (
+                        <label
+                          key={type.value}
+                          className="flex items-center gap-2 cursor-pointer"
+                        >
+                          <input
+                            type="checkbox"
+                            value={type.value}
+                            checked={
+                              settingsForm
+                                .watch("allowed_doc_types")
+                                ?.includes(type.value) ?? false
+                            }
+                            onChange={(e) => {
+                              const current =
+                                settingsForm.getValues("allowed_doc_types") ?? [];
+                              if (e.target.checked) {
+                                settingsForm.setValue("allowed_doc_types", [
+                                  ...current,
+                                  type.value,
+                                ]);
+                              } else {
+                                settingsForm.setValue(
+                                  "allowed_doc_types",
+                                  current.filter((v) => v !== type.value)
+                                );
+                              }
+                            }}
+                            className="rounded"
+                          />
+                          <span className="text-sm">{type.label}</span>
+                        </label>
+                      ))}
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Leave empty to allow all types
+                    </p>
+                  </div>
+
+                  <Separator />
+
+                  {/* Require liveness */}
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <Label htmlFor="require_liveness">
+                        Require Liveness Check
+                      </Label>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Selfie must pass liveness detection
+                      </p>
+                    </div>
+                    <input
+                      id="require_liveness"
+                      type="checkbox"
+                      checked={
+                        settingsForm.watch("require_liveness") ?? true
+                      }
+                      onChange={(e) =>
+                        settingsForm.setValue(
+                          "require_liveness",
+                          e.target.checked
+                        )
+                      }
+                      className="h-4 w-4 rounded"
+                    />
+                  </div>
+
+                  <Separator />
+
+                  {/* Require selfie */}
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <Label htmlFor="require_selfie">
+                        Require Selfie
+                      </Label>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        User must submit selfie (can disable to skip this step)
+                      </p>
+                    </div>
+                    <input
+                      id="require_selfie"
+                      type="checkbox"
+                      checked={
+                        settingsForm.watch("require_selfie") ?? true
+                      }
+                      onChange={(e) =>
+                        settingsForm.setValue(
+                          "require_selfie",
+                          e.target.checked
+                        )
+                      }
+                      className="h-4 w-4 rounded"
+                    />
+                  </div>
+
+                  <Separator />
+
+                  {/* Data retention */}
+                  <div className="space-y-2">
+                    <Label htmlFor="retention_days">
+                      Data Retention{" "}
+                      <span className="text-muted-foreground">(days)</span>
+                    </Label>
+                    <Input
+                      id="retention_days"
+                      type="number"
+                      min={1}
+                      max={3650}
+                      {...settingsForm.register("retention_days", {
+                        valueAsNumber: true,
+                      })}
+                      className="w-40"
+                    />
+                    {settingsForm.formState.errors.retention_days && (
+                      <p className="text-sm text-destructive">
+                        {settingsForm.formState.errors.retention_days.message}
+                      </p>
+                    )}
+                    <p className="text-xs text-muted-foreground">
+                      Documents auto-delete after this period
+                    </p>
+                  </div>
+
+                  <Separator />
+
+                  {/* Allowed origins */}
+                  <div className="space-y-3">
+                    <Label>Allowed Origins (CORS)</Label>
+                    <div className="space-y-2">
+                      {(
+                        settingsForm.watch("allowed_origins") ?? []
+                      ).map((origin, idx) => (
+                        <div key={idx} className="flex gap-2">
+                          <Input
+                            value={origin}
+                            onChange={(e) => {
+                              const current =
+                                settingsForm.getValues("allowed_origins") ?? [];
+                              current[idx] = e.target.value;
+                              settingsForm.setValue("allowed_origins", current);
+                            }}
+                            placeholder="https://example.com"
+                            className="flex-1"
+                          />
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => {
+                              const current =
+                                settingsForm.getValues("allowed_origins") ?? [];
+                              settingsForm.setValue(
+                                "allowed_origins",
+                                current.filter((_, i) => i !== idx)
+                              );
+                            }}
+                          >
+                            <X className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      ))}
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          const current =
+                            settingsForm.getValues("allowed_origins") ?? [];
+                          settingsForm.setValue("allowed_origins", [
+                            ...current,
+                            "",
+                          ]);
+                        }}
+                      >
+                        <Plus className="h-3 w-3 mr-1" />
+                        Add origin
+                      </Button>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Leave empty to use global default
+                    </p>
+                  </div>
+
+                  <Separator />
+
+                  {/* Scoring thresholds */}
                   <div className="grid sm:grid-cols-2 gap-4">
                     <div className="space-y-2">
-                      <Label>
-                        Approve threshold{" "}
+                      <Label htmlFor="approve_threshold">
+                        Approve Threshold{" "}
                         <span className="text-muted-foreground">(≥)</span>
                       </Label>
                       <Input
+                        id="approve_threshold"
                         type="number"
                         min={0}
                         max={100}
                         placeholder="e.g. 75"
-                        value={approveThreshold}
-                        onChange={(e) => setApproveThreshold(e.target.value)}
+                        {...settingsForm.register(
+                          "score_approve_threshold",
+                          { valueAsNumber: true }
+                        )}
                       />
+                      {settingsForm.formState.errors
+                        .score_approve_threshold && (
+                        <p className="text-sm text-destructive">
+                          {
+                            settingsForm.formState.errors
+                              .score_approve_threshold.message
+                          }
+                        </p>
+                      )}
+                      <p className="text-xs text-muted-foreground">
+                        Leave empty for global default (75)
+                      </p>
                     </div>
                     <div className="space-y-2">
-                      <Label>
-                        Reject threshold{" "}
+                      <Label htmlFor="reject_threshold">
+                        Reject Threshold{" "}
                         <span className="text-muted-foreground">(≤)</span>
                       </Label>
                       <Input
+                        id="reject_threshold"
                         type="number"
                         min={0}
                         max={100}
                         placeholder="e.g. 35"
-                        value={rejectThreshold}
-                        onChange={(e) => setRejectThreshold(e.target.value)}
+                        {...settingsForm.register("score_reject_threshold", {
+                          valueAsNumber: true,
+                        })}
                       />
+                      {settingsForm.formState.errors.score_reject_threshold && (
+                        <p className="text-sm text-destructive">
+                          {
+                            settingsForm.formState.errors
+                              .score_reject_threshold.message
+                          }
+                        </p>
+                      )}
+                      <p className="text-xs text-muted-foreground">
+                        Leave empty for global default (35)
+                      </p>
                     </div>
                   </div>
-                  <Separator />
-                  <div className="space-y-2">
-                    <Label>
-                      Data retention{" "}
-                      <span className="text-muted-foreground">(days)</span>
-                    </Label>
-                    <Input
-                      type="number"
-                      min={1}
-                      max={3650}
-                      value={retentionDays}
-                      onChange={(e) => setRetentionDays(e.target.value)}
-                      className="w-40"
-                    />
-                  </div>
+
                   <Button
-                    onClick={() => settingsMutation.mutate()}
+                    onClick={settingsForm.handleSubmit((data) =>
+                      settingsMutation.mutate(data)
+                    )}
                     disabled={settingsMutation.isPending}
                   >
                     {settingsMutation.isPending ? "Saving…" : "Save settings"}
@@ -499,7 +828,7 @@ export default function SettingsPage() {
         </TabsContent>
       </Tabs>
 
-      {/* New key reveal dialog */}
+      {/* Key reveal dialog (create or regenerate) */}
       <Dialog
         open={createdKey !== null}
         onOpenChange={(open) => {
@@ -508,9 +837,11 @@ export default function SettingsPage() {
       >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>API Key Created</DialogTitle>
+            <DialogTitle>
+              {keyAction === "regenerate" ? "API Key Regenerated" : "API Key Created"}
+            </DialogTitle>
             <DialogDescription>
-              Copy this key now — it will not be shown again.
+              Copy this key now — {keyAction === "regenerate" ? "the old key will be invalid." : "it will not be shown again."}
             </DialogDescription>
           </DialogHeader>
           <div className="flex items-center gap-2 rounded-md border bg-muted p-3">

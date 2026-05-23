@@ -69,9 +69,9 @@ export default function VerifyTokenPage() {
       setImages((prev) => ({ ...prev, [slot]: img }));
       if (slot === "front") {
         const needsBack = session && DOCUMENT_REQUIRES_BACK[session.document_type];
-        setStep(needsBack ? "capture_back" : "capture_selfie");
+        setStep(needsBack ? "capture_back" : session?.require_selfie ? "capture_selfie" : "review");
       } else if (slot === "back") {
-        setStep("capture_selfie");
+        setStep(session?.require_selfie ? "capture_selfie" : "review");
       } else {
         setStep("review");
       }
@@ -86,13 +86,18 @@ export default function VerifyTokenPage() {
       return next;
     });
     setSubmitError(null);
-    setStep(
-      slot === "front" ? "capture_front" : slot === "back" ? "capture_back" : "capture_selfie"
-    );
+    if (slot === "front") {
+      setStep("capture_front");
+    } else if (slot === "back") {
+      setStep("capture_back");
+    } else {
+      setStep("capture_selfie");
+    }
   }, []);
 
   const handleSubmit = useCallback(async () => {
-    if (!images.front || !images.selfie) return;
+    const selfieRequired = session?.require_selfie ?? true;
+    if (!images.front || (selfieRequired && !images.selfie)) return;
     setStep("submitting");
     setSubmitError(null);
     try {
@@ -100,14 +105,16 @@ export default function VerifyTokenPage() {
       if (images.back) {
         await uploadDocumentByToken(token, "doc_back", images.back.file);
       }
-      await uploadDocumentByToken(token, "selfie", images.selfie.file);
+      if (images.selfie) {
+        await uploadDocumentByToken(token, "selfie", images.selfie.file);
+      }
       await submitByToken(token);
       setStep("processing");
     } catch (err) {
       setSubmitError(err instanceof Error ? err.message : "Upload failed. Please try again.");
       setStep("review");
     }
-  }, [token, images]);
+  }, [token, images, session?.require_selfie]);
 
   if (step === "loading") {
     return (
@@ -138,6 +145,7 @@ export default function VerifyTokenPage() {
       <div className={wrapperClass}>
         <div className={cardClass}>
           <CameraCapture
+            key="capture_front"
             label="Document Front"
             hint="Place the front of your ID within the frame"
             overlayShape="rect"
@@ -154,6 +162,7 @@ export default function VerifyTokenPage() {
       <div className={wrapperClass}>
         <div className={cardClass}>
           <CameraCapture
+            key="capture_back"
             label="Document Back"
             hint="Flip your ID and capture the back"
             overlayShape="rect"
@@ -171,6 +180,7 @@ export default function VerifyTokenPage() {
       <div className={wrapperClass}>
         <div className={cardClass}>
           <CameraCapture
+            key="capture_selfie"
             label="Selfie"
             hint="Look straight at the camera and blink once"
             overlayShape="oval"
@@ -197,6 +207,7 @@ export default function VerifyTokenPage() {
             onSubmit={handleSubmit}
             submitting={step === "submitting"}
             error={submitError ?? undefined}
+            requireSelfie={session?.require_selfie ?? true}
           />
         </div>
       </div>

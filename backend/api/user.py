@@ -133,6 +133,34 @@ async def create_key(
     )
 
 
+@router.post("/keys/{key_id}/regenerate", status_code=200, response_model=ApiKeyCreateResponse)
+async def regenerate_key(
+    key_id: str,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    result = await session.execute(
+        select(ApiKey).where(ApiKey.id == key_id, ApiKey.user_id == user.id)
+    )
+    key = result.scalar_one_or_none()
+    if not key:
+        raise HTTPException(status_code=404, detail="API key not found")
+    if key.revoked_at:
+        raise HTTPException(status_code=409, detail="API key already revoked")
+
+    raw_key = generate_api_key()
+    key.key_hash = hash_api_key(raw_key)
+    await session.commit()
+
+    return ApiKeyCreateResponse(
+        id=key.id,
+        name=key.name,
+        environment=key.environment,
+        raw_key=raw_key,
+        created_at=key.created_at,
+    )
+
+
 @router.delete("/keys/{key_id}", status_code=204)
 async def revoke_key(
     key_id: str,
@@ -203,6 +231,7 @@ async def get_settings(
     s = await _get_or_create_settings(user.id, session)
     return UserSettingsResponse(
         require_liveness=s.require_liveness,
+        require_selfie=s.require_selfie,
         retention_days=s.retention_days,
         score_approve_threshold=s.score_approve_threshold,
         score_reject_threshold=s.score_reject_threshold,
@@ -220,6 +249,8 @@ async def update_settings(
     s = await _get_or_create_settings(user.id, session)
     if body.require_liveness is not None:
         s.require_liveness = body.require_liveness
+    if body.require_selfie is not None:
+        s.require_selfie = body.require_selfie
     if body.retention_days is not None:
         s.retention_days = body.retention_days
     if body.score_approve_threshold is not None:
@@ -234,6 +265,7 @@ async def update_settings(
     await session.commit()
     return UserSettingsResponse(
         require_liveness=s.require_liveness,
+        require_selfie=s.require_selfie,
         retention_days=s.retention_days,
         score_approve_threshold=s.score_approve_threshold,
         score_reject_threshold=s.score_reject_threshold,

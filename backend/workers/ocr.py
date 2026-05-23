@@ -20,7 +20,7 @@ def _get_reader():
     global _reader
     if _reader is None:
         import easyocr
-        _reader = easyocr.Reader(["ar", "fr", "en"], gpu=False)
+        _reader = easyocr.Reader(["ar", "en"], gpu=False)
     return _reader
 
 

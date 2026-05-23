@@ -19,22 +19,23 @@ interface Props {
   onSubmit: () => void;
   submitting: boolean;
   error?: string;
+  requireSelfie?: boolean;
 }
 
-export function ReviewScreen({ images, documentType, onRetake, onSubmit, submitting, error }: Props) {
+export function ReviewScreen({ images, documentType, onRetake, onSubmit, submitting, error, requireSelfie = true }: Props) {
   const slots: { key: "front" | "back" | "selfie"; label: string }[] = [
     { key: "front", label: "Document Front" },
     ...(images.back ? [{ key: "back" as const, label: "Document Back" }] : []),
-    { key: "selfie", label: "Selfie" },
+    ...(requireSelfie ? [{ key: "selfie" as const, label: "Selfie" }] : []),
   ];
 
-  const canSubmit = !!images.front && !!images.selfie;
+  const canSubmit = !!images.front && (requireSelfie ? !!images.selfie : true);
 
   return (
     <div className="flex flex-col min-h-dvh bg-zinc-950 sm:min-h-0 sm:rounded-2xl sm:overflow-hidden sm:border sm:border-zinc-200 sm:shadow-sm sm:bg-white">
 
       {/* Header */}
-      <div className="px-4 pt-12 pb-4 sm:pt-5 sm:pb-4 sm:border-b sm:border-zinc-100">
+      <div className="px-4 pt-12 pb-4 sm:pt-5 sm:pb-4">
         <h2 className="text-base font-semibold text-white sm:text-zinc-900">Review Your Photos</h2>
         <p className="text-xs text-zinc-400 sm:text-zinc-500 mt-0.5">
           {DOCUMENT_TYPE_LABELS[documentType]} — confirm all images are clear
@@ -84,7 +85,7 @@ export function ReviewScreen({ images, documentType, onRetake, onSubmit, submitt
       </div>
 
       {/* Submit */}
-      <div className="px-4 py-5 pb-8 sm:pb-5 sm:border-t sm:border-zinc-100 bg-zinc-950 sm:bg-white">
+      <div className="px-4 py-5 pb-8 sm:pb-5 bg-transparent">
         <Button
           onClick={onSubmit}
           disabled={submitting || !canSubmit}

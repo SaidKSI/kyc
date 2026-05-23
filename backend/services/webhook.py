@@ -8,6 +8,7 @@ import asyncio
 import hashlib
 import hmac
 import json
+import logging
 import uuid
 from datetime import datetime, timezone
 
@@ -21,21 +22,34 @@ from models.verification import Verification
 from models.webhook_deliveries import WebhookDelivery
 from workers.celery_app import celery_app
 
+logger = logging.getLogger(__name__)
+
 _RETRY_DELAYS = [60, 120, 240, 480]  # seconds between attempts 1-2, 2-3, 3-4, 4-5
 
 
 @celery_app.task(bind=True, name="services.webhook.dispatch_webhook", max_retries=4)
 def dispatch_webhook(self, verification_id: str) -> None:
-    asyncio.run(_dispatch(self, verification_id))
+    logger.info(f"[WEBHOOK] Starting dispatch for verification_id={verification_id}, attempt={self.request.retries + 1}")
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        loop.run_until_complete(_dispatch(self, verification_id))
+    except Exception as e:
+        logger.error(f"[WEBHOOK] Dispatch failed: {e}", exc_info=True)
+        raise
+    finally:
+        loop.close()
 
 
 async def _dispatch(task, verification_id: str) -> None:
+    logger.info(f"[WEBHOOK] Fetching verification {verification_id}")
     async with AsyncSessionLocal() as session:
         result = await session.execute(
             select(Verification).where(Verification.id == verification_id)
         )
         ver = result.scalar_one_or_none()
         if not ver:
+            logger.warning(f"[WEBHOOK] Verification {verification_id} not found")
             return
 
         result = await session.execute(
@@ -43,6 +57,7 @@ async def _dispatch(task, verification_id: str) -> None:
         )
         op = result.scalar_one_or_none()
         if not op or not op.webhook_url:
+            logger.info(f"[WEBHOOK] No webhook URL configured for user {ver.user_id}")
             return
 
         payload = {
@@ -63,6 +78,7 @@ async def _dispatch(task, verification_id: str) -> None:
         ).hexdigest()
 
         attempt_number = task.request.retries + 1
+        logger.info(f"[WEBHOOK] Sending to {op.webhook_url} (attempt {attempt_number})")
         delivery = WebhookDelivery(
             id=str(uuid.uuid4()),
             verification_id=ver.id,
@@ -84,13 +100,17 @@ async def _dispatch(task, verification_id: str) -> None:
                     },
                 )
             delivery.status_code = resp.status_code
+            logger.info(f"[WEBHOOK] Response: HTTP {resp.status_code}")
             if resp.is_success:
                 delivery.delivered_at = datetime.now(timezone.utc)
+                logger.info(f"[WEBHOOK] Success!")
 
         except Exception as exc:
+            logger.error(f"[WEBHOOK] Request failed: {exc}", exc_info=True)
             session.add(delivery)
             await session.commit()
             countdown = _RETRY_DELAYS[min(task.request.retries, len(_RETRY_DELAYS) - 1)]
+            logger.info(f"[WEBHOOK] Retrying in {countdown}s")
             raise task.retry(exc=exc, countdown=countdown)
 
         session.add(delivery)
@@ -98,6 +118,7 @@ async def _dispatch(task, verification_id: str) -> None:
 
         if not resp.is_success:
             countdown = _RETRY_DELAYS[min(task.request.retries, len(_RETRY_DELAYS) - 1)]
+            logger.warning(f"[WEBHOOK] Failed with HTTP {resp.status_code}, retrying in {countdown}s")
             raise task.retry(
                 exc=Exception(f"Webhook returned HTTP {resp.status_code}"),
                 countdown=countdown,

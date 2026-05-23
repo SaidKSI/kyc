@@ -31,6 +31,7 @@ class SessionInfoResponse(BaseModel):
     document_type: str
     locale: str
     status: str
+    require_selfie: bool = True
     redirect_url: Optional[str] = None
     expires_at: Optional[datetime] = None
 

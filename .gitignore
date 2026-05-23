@@ -21,6 +21,9 @@ node_modules/
 backend/logs/
 frontend/logs/
 
+# Uploads
+backend/uploads/
+
 # OS
 .DS_Store
 Thumbs.db

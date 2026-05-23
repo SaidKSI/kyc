@@ -33,6 +33,7 @@ Table user_settings {
   user_id                 varchar(36)  [pk, ref: - users.id]
   allowed_doc_types       text[]       [note: 'NULL = all types allowed']
   require_liveness        boolean      [not null, default: true]
+  require_selfie          boolean      [not null, default: true]
   retention_days          int          [not null, default: 90]
   allowed_origins         text[]       [note: 'CORS whitelist, NULL = use global']
   score_approve_threshold int          [note: 'NULL = use global (75)']

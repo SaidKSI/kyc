@@ -3,15 +3,22 @@ Passive liveness detection using MediaPipe Face Mesh.
 Returns: {"live": bool, "confidence": float, "method": "passive"}
 """
 import cv2
-import mediapipe as mp
 import numpy as np
 
-_mp_face_mesh = mp.solutions.face_mesh
+_mp_face_mesh = None
 
 # Left eye: 33 160 158 133 153 144
 # Right eye: 362 385 387 263 373 380
 _LEFT_EYE  = [33, 160, 158, 133, 153, 144]
 _RIGHT_EYE = [362, 385, 387, 263, 373, 380]
+
+
+def _get_face_mesh():
+    global _mp_face_mesh
+    if _mp_face_mesh is None:
+        import mediapipe as mp
+        _mp_face_mesh = mp.solutions.face_mesh
+    return _mp_face_mesh
 
 
 def _ear(landmarks, indices: list[int]) -> float:
@@ -31,7 +38,8 @@ def check_liveness(image_bytes: bytes) -> dict:
 
     rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
 
-    with _mp_face_mesh.FaceMesh(
+    mp_face_mesh = _get_face_mesh()
+    with mp_face_mesh.FaceMesh(
         static_image_mode=True,
         max_num_faces=1,
         refine_landmarks=True,

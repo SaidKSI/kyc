@@ -54,6 +54,7 @@ class ApiKeyCreateResponse(BaseModel):
 class UserSettingsResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     require_liveness: bool
+    require_selfie: bool
     retention_days: int
     score_approve_threshold: Optional[int] = None
     score_reject_threshold: Optional[int] = None
@@ -63,6 +64,7 @@ class UserSettingsResponse(BaseModel):
 
 class UserSettingsUpdate(BaseModel):
     require_liveness: Optional[bool] = None
+    require_selfie: Optional[bool] = None
     retention_days: Optional[int] = Field(None, ge=1, le=3650)
     score_approve_threshold: Optional[int] = Field(None, ge=0, le=100)
     score_reject_threshold: Optional[int] = Field(None, ge=0, le=100)

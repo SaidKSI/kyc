@@ -72,6 +72,15 @@ export async function authRequest<T>(
     },
     ...rest,
   });
+
+  if (res.status === 401) {
+    clearAuth();
+    if (typeof window !== "undefined") {
+      window.location.href = "/login";
+    }
+    throw new Error("Unauthorized");
+  }
+
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new Error(body.detail ?? `HTTP ${res.status}`);

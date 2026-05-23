@@ -49,6 +49,7 @@ export interface ApiKeyCreated extends ApiKeyItem {
 
 export interface UserSettings {
   require_liveness: boolean;
+  require_selfie: boolean;
   retention_days: number;
   score_approve_threshold: number | null;
   score_reject_threshold: number | null;
@@ -152,6 +153,11 @@ export const createKey = (token: string, data: { name: string; environment: stri
   authRequest<ApiKeyCreated>("/v1/keys", token, {
     method: "POST",
     body: JSON.stringify(data),
+  });
+
+export const regenerateKey = (token: string, keyId: string) =>
+  authRequest<ApiKeyCreated>(`/v1/keys/${keyId}/regenerate`, token, {
+    method: "POST",
   });
 
 export const revokeKey = (token: string, keyId: string) =>

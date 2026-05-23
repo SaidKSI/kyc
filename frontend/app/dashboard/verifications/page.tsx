@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useAuth } from "@/hooks/use-auth";
 import { listVerifications } from "@/lib/dashboard-api";
 import { Badge } from "@/components/ui/badge";
@@ -24,7 +25,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { ChevronRight, Search } from "lucide-react";
+import { Search } from "lucide-react";
 
 const STATUS_BADGE: Record<string, "default" | "secondary" | "destructive" | "outline"> = {
   approved: "default",
@@ -46,6 +47,7 @@ function fmt(iso: string) {
 }
 
 export default function VerificationsPage() {
+  const router = useRouter();
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
 
@@ -120,18 +122,25 @@ export default function VerificationsPage() {
             <TableHeader>
               <TableRow>
                 <TableHead>Reference</TableHead>
+                <TableHead>Token</TableHead>
                 <TableHead>Document</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead className="text-right">Score</TableHead>
                 <TableHead>Created</TableHead>
                 <TableHead>Completed</TableHead>
-                <TableHead className="w-10" />
               </TableRow>
             </TableHeader>
             <TableBody>
               {rows.map((v) => (
-                <TableRow key={v.verification_id} className="group">
+                <TableRow
+                  key={v.verification_id}
+                  className="cursor-pointer hover:bg-muted/50 transition-colors"
+                  onClick={() => router.push(`/dashboard/verifications/${v.verification_id}`)}
+                >
                   <TableCell className="font-mono text-xs">{v.reference_id}</TableCell>
+                  <TableCell className="font-mono text-xs text-muted-foreground">
+                    {v.verification_id.slice(0, 8)}...
+                  </TableCell>
                   <TableCell className="capitalize">
                     {v.document_type.replace(/_/g, " ")}
                   </TableCell>
@@ -148,17 +157,6 @@ export default function VerificationsPage() {
                   </TableCell>
                   <TableCell className="text-muted-foreground text-xs">
                     {v.completed_at ? fmt(v.completed_at) : "—"}
-                  </TableCell>
-                  <TableCell>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-7 w-7 opacity-0 group-hover:opacity-100"
-                      nativeButton={false}
-                      render={<Link href={`/dashboard/verifications/${v.verification_id}`} />}
-                    >
-                      <ChevronRight className="h-4 w-4" />
-                    </Button>
                   </TableCell>
                 </TableRow>
               ))}
