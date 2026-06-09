@@ -56,8 +56,8 @@ def check_liveness(image_bytes: bytes) -> dict:
 
     mp_face_mesh = _get_face_mesh()
     if mp_face_mesh is None:
-        # mediapipe unavailable — return neutral result so pipeline continues
-        return {"live": True, "confidence": 0.5, "method": "passive", "flags": ["mediapipe_unavailable"]}
+        # mediapipe unavailable — fail liveness check
+        return {"live": False, "confidence": 0.0, "method": "passive", "flags": ["mediapipe_unavailable"], "skipped": True}
 
     rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
 

@@ -4,7 +4,6 @@ from pathlib import Path
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from fastapi.staticfiles import StaticFiles
 
 from api.admin import router as admin_router
 from api.auth import router as auth_router
@@ -24,11 +23,14 @@ async def lifespan(app: FastAPI):
     await engine.dispose()
 
 
+docs_url = "/docs" if settings.environment == "development" else None
+redoc_url = "/redoc" if settings.environment == "development" else None
+
 app = FastAPI(
     title="KYC Verification API",
     version="0.1.0",
-    docs_url="/docs",
-    redoc_url="/redoc",
+    docs_url=docs_url,
+    redoc_url=redoc_url,
     lifespan=lifespan,
 )
 
@@ -50,11 +52,6 @@ app.include_router(auth_router)
 app.include_router(user_router)
 app.include_router(admin_router)
 
-# Local dev — serve uploaded documents at /uploads
-if settings.storage_backend == "local":
-    upload_path = Path(settings.upload_dir)
-    upload_path.mkdir(parents=True, exist_ok=True)
-    app.mount("/uploads", StaticFiles(directory=str(upload_path)), name="uploads")
 
 
 @app.exception_handler(Exception)
@@ -73,4 +70,27 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
 
 @app.get("/health", tags=["system"])
 async def health():
-    return {"status": "ok", "version": "0.1.0"}
+    db_ok = False
+    redis_ok = False
+
+    try:
+        async with engine.connect() as conn:
+            await conn.execute("SELECT 1")
+        db_ok = True
+    except Exception:
+        pass
+
+    try:
+        import redis
+        r = redis.from_url(settings.redis_url)
+        r.ping()
+        redis_ok = True
+    except Exception:
+        pass
+
+    return {
+        "status": "ok" if (db_ok and redis_ok) else "degraded",
+        "version": "0.1.0",
+        "db": db_ok,
+        "redis": redis_ok,
+    }

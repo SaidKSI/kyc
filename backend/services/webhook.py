@@ -78,7 +78,7 @@ async def _dispatch(task, verification_id: str) -> None:
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
         body = json.dumps(payload, separators=(",", ":"))
-        signature = hmac.new(
+        signature = hmac.HMAC(
             (op.webhook_secret or "").encode(),
             body.encode(),
             hashlib.sha256,

@@ -2,7 +2,8 @@ import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, File, UploadFile
+from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -19,6 +20,7 @@ from schemas.verification import (
     VerificationListItem,
     VerificationStatusResponse,
 )
+from services.encryption import decrypt_fields
 from services.storage import storage
 
 router = APIRouter(prefix="/v1", tags=["verifications"])
@@ -145,7 +147,7 @@ async def get_verification_detail(
         status=ver.status,
         score=ver.score,
         decision=ver.decision,
-        extracted_fields=ver.extracted_fields,
+        extracted_fields=decrypt_fields(ver.extracted_fields),
         checks=ver.checks,
         locale=ver.locale,
         created_at=ver.created_at,
@@ -168,7 +170,36 @@ async def get_verification_status(
         status=ver.status,
         score=ver.score,
         decision=ver.decision,
-        extracted_fields=ver.extracted_fields,
+        extracted_fields=decrypt_fields(ver.extracted_fields),
         checks=ver.checks,
         completed_at=ver.completed_at,
     )
+
+
+@router.get("/verify/{verification_id}/image/{slot}")
+async def get_verification_image(
+    verification_id: str,
+    slot: str,
+    user: User = Depends(get_user),
+    session: AsyncSession = Depends(get_session),
+):
+    if slot not in ("doc_front", "doc_back", "selfie"):
+        raise HTTPException(status_code=400, detail="Invalid image slot")
+
+    ver = await _get_verification(verification_id, user, session)
+
+    key_map = {
+        "doc_front": ver.doc_front_key,
+        "doc_back": ver.doc_back_key,
+        "selfie": ver.selfie_key,
+    }
+    key = key_map[slot]
+    if not key:
+        raise HTTPException(status_code=404, detail=f"No {slot} image found")
+
+    from pathlib import Path
+    path = Path(settings.upload_dir) / key
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="Image not found")
+
+    return FileResponse(path, media_type="image/jpeg")

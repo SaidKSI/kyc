@@ -24,6 +24,7 @@ from schemas.user import (
 )
 from schemas.verification import VerificationDetailResponse, VerificationListItem, WebhookDeliveryResponse
 from services.auth import generate_api_key, hash_api_key, hash_password, verify_password
+from services.encryption import decrypt_fields
 from services.storage import storage
 
 router = APIRouter(prefix="/v1", tags=["user"])
@@ -326,7 +327,7 @@ async def get_my_verification(
         status=ver.status,
         score=ver.score,
         decision=ver.decision,
-        extracted_fields=ver.extracted_fields,
+        extracted_fields=decrypt_fields(ver.extracted_fields),
         checks=ver.checks,
         locale=ver.locale,
         created_at=ver.created_at,

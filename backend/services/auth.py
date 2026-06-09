@@ -10,7 +10,7 @@ from core.config import settings
 
 
 def hash_api_key(raw_key: str) -> str:
-    return hmac.new(
+    return hmac.HMAC(
         settings.api_key_salt.encode(),
         raw_key.encode(),
         hashlib.sha256,

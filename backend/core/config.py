@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     # Auth
     jwt_secret: str = "change-me-in-production"
     api_key_salt: str = "change-me-in-production"
+    fernet_key: str = "change-me-in-production"  # Generated: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
 
     # Webhook
     webhook_timeout_seconds: int = 10
@@ -39,6 +40,9 @@ class Settings(BaseSettings):
     # OpenAI
     openai_api_key: str = ""
     openai_model: str = "gpt-4o-mini"
+
+    # Environment
+    environment: str = "development"
 
 
 settings = Settings()

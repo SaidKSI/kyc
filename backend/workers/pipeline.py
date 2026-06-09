@@ -13,6 +13,7 @@ from models.database import AsyncSessionLocal
 from models.audit import AuditEvent
 from models.users import User
 from models.verification import Verification
+from services.encryption import encrypt_fields
 from services.scoring import compute_score
 from services.storage import storage
 from workers.celery_app import celery_app
@@ -118,10 +119,11 @@ async def _execute(verification_id: str) -> None:
         ver.status = score_result["decision"]  # approved | rejected | review
         ver.completed_at = datetime.now(timezone.utc)
 
-        # Persist extracted fields from OCR
+        # Persist extracted fields from OCR (encrypted at rest)
         if ocr_result and not ocr_result.get("skipped"):
-            ver.extracted_fields = ocr_result.get("extracted_fields")
-            logger.info(f"[PIPELINE] Extracted fields: {ver.extracted_fields}")
+            fields_dict = ocr_result.get("extracted_fields")
+            ver.extracted_fields = encrypt_fields(fields_dict)
+            logger.info(f"[PIPELINE] Extracted fields encrypted")
 
         # ── Step 4g: Rejection / review reason (LLM, text only) ──────────
         if ver.decision in ("rejected", "review"):

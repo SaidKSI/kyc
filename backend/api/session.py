@@ -26,6 +26,7 @@ from models.database import AsyncSessionLocal, get_session
 from models.user_settings import UserSettings
 from models.verification import Verification
 from schemas.verification import SessionInfoResponse, SubmitResponse, VerificationStatusResponse
+from services.encryption import decrypt_fields
 from services.storage import storage
 
 router = APIRouter(prefix="/v1/session", tags=["session"])
@@ -162,7 +163,7 @@ async def session_status(
         status=ver.status,
         score=ver.score,
         decision=ver.decision,
-        extracted_fields=ver.extracted_fields,
+        extracted_fields=decrypt_fields(ver.extracted_fields),
         checks=ver.checks,
         completed_at=ver.completed_at,
     )

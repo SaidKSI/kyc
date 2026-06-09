@@ -16,6 +16,7 @@ from schemas.user import (
     AdminUserUpdate,
 )
 from schemas.verification import AdminDecisionUpdate, VerificationDetailResponse, VerificationListItem, WebhookDeliveryResponse
+from services.encryption import decrypt_fields
 from services.storage import storage
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -110,7 +111,7 @@ async def get_verification_detail(
         status=ver.status,
         score=ver.score,
         decision=ver.decision,
-        extracted_fields=ver.extracted_fields,
+        extracted_fields=decrypt_fields(ver.extracted_fields),
         checks=ver.checks,
         locale=ver.locale,
         created_at=ver.created_at,
