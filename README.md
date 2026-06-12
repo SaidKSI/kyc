@@ -132,3 +132,19 @@ python -c "from deepface import DeepFace; DeepFace.build_model('ArcFace')"
 docker compose exec celery python -c "import easyocr; easyocr.Reader(['ar', 'fr', 'en'])"
 docker compose exec celery python -c "from deepface import DeepFace; DeepFace.build_model('ArcFace')"
 ```
+
+
+DATABASE CONTAINER 
+ssh -i $HOME\.ssh\id_ed25519 -L 8080:127.0.0.1:8080 root@185.197.250.146
+Server/Host: 127.0.0.1 or localhost
+Port: 5432
+Username: kyc
+Password: LKatTzr8ibaDcjLs
+Database: kyc_platform
+
+created caarent@kyc.com (role=user)
+    API Key : kyc_Cmp0lDQ-J0DdeWt3_YFdGj7j2Gi4ao3CgzUeE4G-dM0
+    Password: password123
+  created admin@kyc.com (role=admin)
+    API Key : kyc_nFVDkEcaN0yH44UJwgfUj9iHZaev-fukiP85YEB-9jY
+    Password: password123
