@@ -1,0 +1,103 @@
+services:
+
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: kyc_platform
+      POSTGRES_USER: kyc
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - kyc_net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kyc -d kyc_platform"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    networks:
+      - kyc_net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+    restart: unless-stopped
+    env_file: ./backend/.env.production
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - kyc_uploads:/kyc-uploads
+      - ml_models:/root/.cache
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - kyc_net
+
+  celery:
+    build:
+      context: ./backend
+    restart: unless-stopped
+    command: celery -A workers.celery_app worker --loglevel=info --concurrency=2
+    env_file: ./backend/.env.production
+    volumes:
+      - kyc_uploads:/kyc-uploads
+      - ml_models:/root/.cache
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - kyc_net
+
+  flower:
+    build:
+      context: ./backend
+    restart: unless-stopped
+    command: celery -A workers.celery_app flower --port=5555 --basic_auth=${FLOWER_USER}:${FLOWER_PASSWORD}
+    env_file: ./backend/.env.production
+    ports:
+      - "127.0.0.1:5555:5555"
+    depends_on:
+      - redis
+    networks:
+      - kyc_net
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      - backend
+    networks:
+      - kyc_net
+
+volumes:
+  postgres_data:
+  redis_data:
+  kyc_uploads:
+  ml_models:
+
+networks:
+  kyc_net:
+    driver: bridge
