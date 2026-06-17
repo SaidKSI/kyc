@@ -136,6 +136,7 @@ docker compose exec celery python -c "from deepface import DeepFace; DeepFace.bu
 
 DATABASE CONTAINER 
 ssh -i $HOME\.ssh\id_ed25519 -L 8080:127.0.0.1:8080 root@185.197.250.146
+http://localhost:8080
 Server/Host: 127.0.0.1 or localhost
 Port: 5432
 Username: kyc

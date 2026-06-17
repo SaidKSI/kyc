@@ -89,8 +89,10 @@ async def create_verification(
 
     upload_urls = None
     if settings.storage_backend == "s3":
+        from services.storage import S3Storage
+        assert isinstance(storage, S3Storage)
         upload_urls = {
-            slot: storage.get_url(f"{ver_id}/{slot}.jpg")
+            slot: storage.generate_upload_url(ver_id, slot)
             for slot in ("doc_front", "doc_back", "selfie")
         }
 

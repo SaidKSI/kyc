@@ -4,6 +4,7 @@ from pathlib import Path
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from api.admin import router as admin_router
 from api.auth import router as auth_router
@@ -45,12 +46,22 @@ app.add_middleware(
 
 app.add_middleware(RateLimitMiddleware)
 
+# Local-dev file serving — only when STORAGE_BACKEND=local
+if settings.storage_backend == "local":
+    upload_path = Path(settings.upload_dir)
+    upload_path.mkdir(parents=True, exist_ok=True)
+    app.mount("/uploads", StaticFiles(directory=str(upload_path)), name="uploads")
+
 # Routers
 app.include_router(verifications_router)
 app.include_router(session_router)
 app.include_router(auth_router)
 app.include_router(user_router)
 app.include_router(admin_router)
+
+if settings.environment == "development":
+    from api.debug import router as debug_router
+    app.include_router(debug_router)
 
 
 

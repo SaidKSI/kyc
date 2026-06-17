@@ -96,6 +96,27 @@ class S3Storage(StorageBackend):
         )
         self._bucket = settings.s3_bucket
 
+    def generate_upload_url(
+        self,
+        verification_id: str,
+        slot: str,
+        content_type: str = "image/jpeg",
+        expires: int = 900,
+    ) -> str:
+        """Presigned PUT URL for direct browser-to-S3 upload."""
+        ext = _ext_for(content_type)
+        key = f"{verification_id}/{slot}.{ext}"
+        return self._client.generate_presigned_url(
+            "put_object",
+            Params={
+                "Bucket": self._bucket,
+                "Key": key,
+                "ContentType": content_type,
+                "ServerSideEncryption": "AES256",
+            },
+            ExpiresIn=expires,
+        )
+
     async def save(
         self,
         verification_id: str,

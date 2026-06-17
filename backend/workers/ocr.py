@@ -42,21 +42,31 @@ logger = logging.getLogger(__name__)
 # CIN: 1–2 letters + 5–6 digits  e.g. AB123456
 _CIN_RE = re.compile(r"^[A-Z]{1,2}\d{5,6}$")
 
-# EasyOCR singleton — ~1 GB models on first load
-_reader = None
+# EasyOCR singletons — Arabic incompatible with French; run two passes
+_reader_ar = None   # Arabic + English
+_reader_fr = None   # French + English (Latin script)
 
 
-def _get_reader():
-    global _reader
-    if _reader is None:
+def _get_reader_ar():
+    global _reader_ar
+    if _reader_ar is None:
         import easyocr
-        _reader = easyocr.Reader(["ar", "en"], gpu=False)
-    return _reader
+        _reader_ar = easyocr.Reader(["ar", "en"], gpu=False)
+    return _reader_ar
+
+
+def _get_reader_fr():
+    global _reader_fr
+    if _reader_fr is None:
+        import easyocr
+        _reader_fr = easyocr.Reader(["fr", "en"], gpu=False)
+    return _reader_fr
 
 
 def _get_openai():
     from openai import OpenAI
-    api_key = os.environ.get("OPENAI_API_KEY")
+    from core.config import settings
+    api_key = settings.openai_api_key
     if not api_key or api_key == "sk-your-key-here":
         raise ValueError("OPENAI_API_KEY not set")
     return OpenAI(api_key=api_key)
@@ -71,10 +81,20 @@ def _decode(image_bytes: bytes):
 
 
 def _run_easyocr(img) -> tuple[list[tuple], float]:
-    results = _get_reader().readtext(img)
-    confs = [conf for _, _, conf in results]
+    ar_results = _get_reader_ar().readtext(img)
+    fr_results = _get_reader_fr().readtext(img)
+    # Merge: for each French result, keep it only if confidence > Arabic result
+    # covering same region; simple approach — union both, deduplicate by text
+    seen: set[str] = set()
+    merged: list[tuple] = []
+    for bbox, text, conf in ar_results + fr_results:
+        key = text.strip().lower()
+        if key and key not in seen:
+            seen.add(key)
+            merged.append((bbox, text, conf))
+    confs = [conf for _, _, conf in merged]
     avg_conf = sum(confs) / len(confs) if confs else 0.0
-    return results, avg_conf
+    return merged, avg_conf
 
 
 def _extract_mrz(image_bytes: bytes) -> tuple[dict, bool]:
