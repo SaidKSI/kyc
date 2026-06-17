@@ -113,7 +113,7 @@ def match_faces(id_image_bytes: bytes, selfie_bytes: bytes) -> dict:
 
         distance = float(result["distance"])
 
-        if distance < 0.40:
+        if distance < 0.50:
             # High confidence match — no LLM needed
             return {
                 "match": True,
@@ -122,7 +122,7 @@ def match_faces(id_image_bytes: bytes, selfie_bytes: bytes) -> dict:
                 "llm_opinion": None,
             }
 
-        elif distance < 0.55:
+        elif distance < 0.65:
             # Borderline — escalate to GPT-4o Vision for second opinion
             logger.info(f"[FACE] Borderline distance {distance:.4f} — requesting LLM second opinion")
             llm = _llm_face_opinion(id_image_bytes, selfie_bytes)

@@ -88,7 +88,7 @@ async def create_verification(
     await session.commit()
 
     upload_urls = None
-    if settings.storage_backend == "s3":
+    if settings.storage_backend == "r2":
         from services.storage import S3Storage
         assert isinstance(storage, S3Storage)
         upload_urls = {

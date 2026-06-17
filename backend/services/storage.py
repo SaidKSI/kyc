@@ -1,5 +1,5 @@
 """
-Storage abstraction — swap STORAGE_BACKEND=local|s3 in .env.
+Storage abstraction — swap STORAGE_BACKEND=local|r2 in .env.
 Always use this module; never call boto3 or open() directly in routes/tasks.
 """
 import asyncio
@@ -89,12 +89,12 @@ class S3Storage(StorageBackend):
 
         self._client = boto3.client(
             "s3",
-            endpoint_url=settings.s3_endpoint or None,
-            aws_access_key_id=settings.s3_access_key,
-            aws_secret_access_key=settings.s3_secret_key,
-            region_name=settings.s3_region,
+            endpoint_url=settings.r2_endpoint or None,
+            aws_access_key_id=settings.r2_access_key,
+            aws_secret_access_key=settings.r2_secret_key,
+            region_name=settings.r2_region,
         )
-        self._bucket = settings.s3_bucket
+        self._bucket = settings.r2_bucket
 
     def generate_upload_url(
         self,
@@ -170,7 +170,7 @@ class S3Storage(StorageBackend):
 
 
 def _build_storage() -> StorageBackend:
-    if settings.storage_backend == "s3":
+    if settings.storage_backend == "r2":
         return S3Storage()
     return LocalStorage(settings.upload_dir)
 

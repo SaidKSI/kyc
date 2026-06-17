@@ -13,11 +13,11 @@ class Settings(BaseSettings):
     # Storage
     storage_backend: str = "local"
     upload_dir: str = "C:/kyc-uploads"
-    s3_endpoint: str = ""
-    s3_access_key: str = ""
-    s3_secret_key: str = ""
-    s3_bucket: str = "kyc-documents"
-    s3_region: str = "eu-west-1"
+    r2_endpoint: str = ""
+    r2_access_key: str = ""
+    r2_secret_key: str = ""
+    r2_bucket: str = "kyc-documents"
+    r2_region: str = "auto"
 
     # Auth
     jwt_secret: str = "change-me-in-production"

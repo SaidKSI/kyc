@@ -9,6 +9,19 @@ import numpy as np
 from PIL import Image
 
 
+def _preprocess_doc(img: np.ndarray) -> np.ndarray:
+    """Reduce glare and normalize contrast before authenticity checks."""
+    # Convert to LAB — normalize L channel only (preserves color)
+    lab = cv2.cvtColor(img, cv2.COLOR_BGR2LAB)
+    l, a, b = cv2.split(lab)
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+    l = clahe.apply(l)
+    # Suppress glare: pixels above 250 brightness → bring down
+    l = np.where(l > 250, 220, l).astype(np.uint8)
+    lab = cv2.merge([l, a, b])
+    return cv2.cvtColor(lab, cv2.COLOR_LAB2BGR)
+
+
 def check_doc_auth(image_bytes: bytes) -> dict:
     flags: list[str] = []
 
@@ -18,6 +31,7 @@ def check_doc_auth(image_bytes: bytes) -> dict:
     if img is None:
         return {"authentic": False, "confidence": 0.0, "flags": ["decode_failed"]}
 
+    img = _preprocess_doc(img)
     h, w = img.shape[:2]
 
     # Resolution
@@ -37,7 +51,7 @@ def check_doc_auth(image_bytes: bytes) -> dict:
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     edges = cv2.Canny(gray, 50, 150)
     edge_density = float(np.sum(edges > 0)) / (h * w)
-    if edge_density > 0.30:
+    if edge_density > 0.45:
         flags.append("high_edge_density")
 
     # Color histogram — screenshot/oversaturation detection

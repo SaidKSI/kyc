@@ -580,9 +580,13 @@ def run_ocr(
                 extracted[schema_key] = v
 
     # Step 5 — VIZ ↔ MRZ cross-check
+    # Skip if avg OCR confidence too low — garbled MRZ produces false mismatches
+    _MRZ_CONF_THRESHOLD = 0.30
     viz_mrz_cross_check: dict = {}
-    if mrz_fields:
+    if mrz_fields and avg_conf >= _MRZ_CONF_THRESHOLD:
         viz_mrz_cross_check = _cross_check_viz_mrz(viz_fields, mrz_fields, document_type)
+    elif mrz_fields and avg_conf < _MRZ_CONF_THRESHOLD:
+        logger.warning(f"[OCR] Skipping VIZ↔MRZ cross-check — avg_conf {avg_conf:.3f} below threshold {_MRZ_CONF_THRESHOLD}")
 
     # Step 6 — Field validation (CIN regex, age, expiry)
     validation_flags = _validate_fields(extracted, document_type)

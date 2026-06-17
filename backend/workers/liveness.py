@@ -48,15 +48,25 @@ def _ear(landmarks, indices: list[int]) -> float:
     return float((a + b) / (2.0 * c)) if c > 0 else 0.0
 
 
+def _preprocess_selfie(img: np.ndarray) -> np.ndarray:
+    """Normalize brightness/contrast so MediaPipe depth cues are reliable."""
+    lab = cv2.cvtColor(img, cv2.COLOR_BGR2LAB)
+    l, a, b = cv2.split(lab)
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+    l = clahe.apply(l)
+    return cv2.cvtColor(cv2.merge([l, a, b]), cv2.COLOR_LAB2BGR)
+
+
 def check_liveness(image_bytes: bytes) -> dict:
     nparr = np.frombuffer(image_bytes, np.uint8)
     img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
     if img is None:
         return {"live": False, "confidence": 0.0, "method": "passive", "flags": ["decode_failed"]}
 
+    img = _preprocess_selfie(img)
+
     mp_face_mesh = _get_face_mesh()
     if mp_face_mesh is None:
-        # mediapipe unavailable — fail liveness check
         return {"live": False, "confidence": 0.0, "method": "passive", "flags": ["mediapipe_unavailable"], "skipped": True}
 
     rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
@@ -90,7 +100,7 @@ def check_liveness(image_bytes: bytes) -> dict:
     texture_score = min(1.0, float(np.var(face_patch)) / 500.0)
 
     confidence = round(z_score * 0.40 + ear_score * 0.30 + texture_score * 0.30, 3)
-    live = confidence > 0.50
+    live = confidence > 0.35
 
     return {
         "live": live,
